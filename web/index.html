@@ -1,0 +1,43 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1, viewport-fit=cover, interactive-widget=resizes-content"
+    />
+    <title>Nuvio</title>
+    <meta name="description" content="Bring your own sources. Nuvio turns them into a library." />
+    <meta name="theme-color" content="#0d0d0d" />
+    <meta name="color-scheme" content="dark" />
+    <meta name="referrer" content="no-referrer" />
+    <link rel="manifest" href="./manifest.webmanifest" />
+    <link rel="icon" type="image/png" href="./icons/favicon.png" />
+    <link rel="apple-touch-icon" href="./icons/icon-180.png" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-title" content="Nuvio" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      rel="stylesheet"
+      href="https://fonts.googleapis.com/css2?family=DM+Sans:opsz,wght@9..40,400..800&family=Inter:opsz,wght@14..32,400..800&family=Open+Sans:wght@400..800&display=swap"
+    />
+    <link
+      rel="stylesheet"
+      href="https://fonts.googleapis.com/css2?family=Material+Symbols+Rounded:opsz,wght,FILL,GRAD@24,400,0..1,0&display=block"
+    />
+    <link rel="stylesheet" href="%APP_CSS%" />
+    <script src="./nuvio.env.js"></script>
+  </head>
+  <body>
+    <div id="app">
+      <div class="boot-splash" id="boot-splash">
+        <img src="./assets/brand/app_logo_wordmark.png" alt="Nuvio" width="180" />
+      </div>
+    </div>
+    <script type="module" src="%APP_JS%"></script>
+    <noscript>Nuvio needs JavaScript to run.</noscript>
+  </body>
+</html>

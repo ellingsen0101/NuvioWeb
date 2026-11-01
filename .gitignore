@@ -17,3 +17,13 @@ app.bundle.js
 ecosystem.config.cjs
 scripts/commit-build-poller.mjs
 .DS_Store
+
+# Nuvio Web
+dist-web/
+server/node_modules/
+server/.env
+.env
+.env.*
+!.env.example
+test-results/
+playwright-report/
