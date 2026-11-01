@@ -14,7 +14,7 @@ Screen behaviour.
 
 | Item | What's missing |
 | --- | --- |
-| **Real Nuvio account sign-in** | The account server's URL and public key aren't in the repository. See [DEPLOYMENT.md](./DEPLOYMENT.md#connecting-to-the-nuvio-account-server). Sign-in and sync have only run against a mock built from upstream's code. |
+| **Real Nuvio account sign-in** | Starting sign-in and polling work against the official server from a browser origin (`http://localhost:5173`). Approving a code, the token exchange, and syncing a real account are **not verified yet**: they need the account owner to approve a code. The server values are in git-ignored `local.properties`, taken from the official 1.3.0 release. |
 | **Real iPhone testing** | Needs an HTTPS deployment and your phone. |
 | **Production deployment** | Needs a static host, plus a VPS or home server for the backend. |
 
