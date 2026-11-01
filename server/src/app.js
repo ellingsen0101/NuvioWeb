@@ -4,7 +4,7 @@ import http from "node:http";
 import { ApiError, createPlaybackManager } from "./playback.js";
 import { createRateLimiter, createTokenService } from "./tokens.js";
 import { createTorrentEngine } from "./torrentEngine.js";
-import { isToolAvailable, rewritePlaylist } from "./media.js";
+import { isToolAvailable, rewritePlaylist, supportsInputPacing } from "./media.js";
 import { UpstreamError, safeGetText } from "./netGuard.js";
 
 const MAX_BODY_BYTES = 64 * 1024;
@@ -52,7 +52,7 @@ export async function createApp(config, { logger = console, createEngine = creat
   });
   const limiter = createRateLimiter();
   const [ffmpeg, ffprobe] = await Promise.all([isToolAvailable(config.ffmpegPath), isToolAvailable(config.ffprobePath)]);
-  const tools = { ffmpeg, ffprobe };
+  const tools = { ffmpeg, ffprobe, inputPacing: ffmpeg && (await supportsInputPacing(config.ffmpegPath)) };
   if (!ffmpeg || !ffprobe) logger.warn?.("ffmpeg or ffprobe wasn't found. Only MP4 and WebM files can be streamed.");
 
   let listenPort = config.port;
@@ -174,9 +174,14 @@ export async function createApp(config, { logger = console, createEngine = creat
     }
 
     if (method === "POST" && pathname === "/v1/auth/session") {
-      rateLimit(request, "auth");
+      // Only wrong keys count, so connecting repeatedly with the right one never locks you out.
+      const authBucket = `auth:${clientIp(request)}`;
+      if (limiter.isExhausted(authBucket, LIMITS.auth.limit)) {
+        throw new ApiError(429, "RATE_LIMITED", "Too many wrong keys. Wait a minute and try again.");
+      }
       const body = await readJson(request);
       if (typeof body.accessKey !== "string" || !tokens.isValidAccessKey(body.accessKey)) {
+        limiter.allow(authBucket, LIMITS.auth.limit, LIMITS.auth.windowMs);
         throw new ApiError(401, "INVALID_ACCESS_KEY", "That access key isn't valid.");
       }
       json(response, 200, tokens.issueSession());

@@ -132,6 +132,13 @@ describe("authentication and access control", () => {
     assert.equal(data.torrents, false);
   });
 
+  test("logging in repeatedly with the right key isn't rate limited", async () => {
+    for (let attempt = 0; attempt < 8; attempt += 1) {
+      const { status } = await api(ctx.base, "/v1/auth/session", { method: "POST", body: { accessKey: ACCESS_KEY } });
+      assert.equal(status, 200, `attempt ${attempt}`);
+    }
+  });
+
   test("login attempts are rate limited", async () => {
     const statuses = [];
     for (let attempt = 0; attempt < 8; attempt += 1) {
@@ -335,7 +342,11 @@ describe("URL playback and remuxing", { skip: !hasFfmpeg && "ffmpeg isn't instal
     assert.ok(init, "playlist names an init segment");
     const initResponse = await fetch(new URL(init, ready.url));
     assert.equal(initResponse.status, 200);
-    assert.ok((await initResponse.arrayBuffer()).byteLength > 100);
+    const initBytes = Buffer.from(await initResponse.arrayBuffer());
+    const hvcc = initBytes.indexOf("hvcC");
+    assert.ok(hvcc > 0, "init has an hvcC box");
+    assert.ok(initBytes.readUInt32BE(hvcc - 4) > 40, "hvcC holds parameter sets, not just a header");
+    assert.ok(initBytes.includes("hvc1"));
     const segment = playlist.split("\n").find((line) => line && !line.startsWith("#"));
     assert.match(segment, /seg\d+\.m4s\?t=/);
     assert.equal((await fetch(new URL(segment, ready.url))).status, 200);

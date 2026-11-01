@@ -123,7 +123,19 @@ export function decidePlayback(summary, capabilities = {}, { allowTranscode = fa
   };
 }
 
-export function buildHlsArgs({ inputUrl, outputDir: rawOutputDir, start = 0, audioIndex = null, audioCodec = "", decision }) {
+// English by default: the first non-commentary track in that language, or else the file's first track.
+export function pickDefaultAudio(tracks = [], preferred = "en") {
+  const wanted = String(preferred || "en").toLowerCase().slice(0, 2);
+  const isCommentary = (track) => /commentary/i.test(track.label || "");
+  const matches = (track) => {
+    const language = String(track.language || "").toLowerCase();
+    if (wanted === "en") return language === "en" || language === "eng" || /\benglish\b/i.test(track.label || "");
+    return language.startsWith(wanted);
+  };
+  return tracks.find((track) => matches(track) && !isCommentary(track)) || tracks.find((track) => !isCommentary(track)) || tracks[0] || null;
+}
+
+export function buildHlsArgs({ inputUrl, outputDir: rawOutputDir, start = 0, audioIndex = null, audioCodec = "", decision, canPaceInput = false }) {
   // ffmpeg finds the folder for fMP4's init.mp4 by looking for "/", so on Windows backslash paths
   // would put that file in the working directory instead.
   const outputDir = String(rawOutputDir).replaceAll("\\", "/");
@@ -132,12 +144,19 @@ export function buildHlsArgs({ inputUrl, outputDir: rawOutputDir, start = 0, aud
   // the source's timestamps lets firstSegmentTime find where it really starts, for subtitle timing.
   if (decision.video === "copy") args.push("-copyts");
   if (start > 0) args.push("-ss", String(start));
+  // Quick to start, then limited to a few times playback speed, so that a stream nobody is watching
+  // doesn't download an entire film.
+  if (canPaceInput) args.push("-readrate", "3", "-readrate_initial_burst", "60");
   args.push("-i", inputUrl, "-map", "0:v:0");
   args.push("-map", audioIndex != null ? `0:${Number(audioIndex)}` : "0:a:0?");
   args.push("-sn", "-dn");
   if (decision.video === "copy") {
     args.push("-c:v", "copy");
-    if (decision.segmentType === "fmp4") args.push("-tag:v", "hvc1");
+    if (decision.segmentType === "fmp4") {
+      // Apple requires hvc1 with its parameter sets in the header. Files tagged hev1 can keep them
+      // inside the video instead, so relabelling alone produces a file iPhones can't decode.
+      args.push("-tag:v", "hvc1", "-bsf:v", "hevc_mp4toannexb,extract_extradata");
+    }
   } else {
     args.push(
       "-c:v", "libx264", "-preset", "veryfast", "-crf", "23", "-pix_fmt", "yuv420p",
@@ -155,7 +174,10 @@ export function buildHlsArgs({ inputUrl, outputDir: rawOutputDir, start = 0, aud
     "-hls_time", String(HLS_SEGMENT_SECONDS),
     "-hls_list_size", "0",
     "-hls_playlist_type", "event",
-    "-hls_flags", "independent_segments",
+    // Some files have keyframes 30 seconds apart. Splitting by time keeps segments short, so players
+    // need far less data before they start. Those segments aren't all independent, so copied video
+    // can't claim to be.
+    "-hls_flags", decision.video === "copy" ? "split_by_time" : "independent_segments",
     "-hls_segment_type", decision.segmentType,
     "-hls_segment_filename", `${outputDir}/seg%05d.${extension}`,
     `${outputDir}/index.m3u8`
@@ -245,6 +267,16 @@ export async function firstSegmentTime({ ffprobePath, outputDir }) {
       const value = parseFloat(stdout);
       resolve(Number.isFinite(value) ? value : null);
     });
+  });
+}
+
+export function supportsInputPacing(ffmpegPath) {
+  return new Promise((resolve) => {
+    const child = spawn(ffmpegPath, ["-hide_banner", "-h", "full"], { stdio: ["ignore", "pipe", "ignore"] });
+    let text = "";
+    child.stdout.on("data", (chunk) => { text += chunk; });
+    child.on("error", () => resolve(false));
+    child.on("close", () => resolve(text.includes("readrate_initial_burst")));
   });
 }
 

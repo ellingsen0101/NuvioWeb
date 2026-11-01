@@ -35,6 +35,8 @@ function generateMedia() {
   if (!existsSync(torrentMp4)) ffmpeg([...input, "-c:a", "aac", "-metadata", "title=torrent", "-movflags", "+faststart", torrentMp4]);
   const mkv = path.join(mediaDir, "remux.mkv");
   if (!existsSync(mkv)) ffmpeg([...input, "-c:a", "ac3", mkv]);
+  const longGop = path.join(mediaDir, "longgop.mkv");
+  if (!existsSync(longGop)) ffmpeg([...input, "-c:a", "ac3", "-g", "240", "-keyint_min", "240", "-sc_threshold", "0", longGop]);
   const torrentMkv = path.join(mediaDir, "torrent-remux.mkv");
   if (!existsSync(torrentMkv)) ffmpeg([...input, "-c:a", "ac3", "-metadata", "title=torrent-mkv", torrentMkv]);
   const playlist = path.join(mediaDir, "hls", "index.m3u8");
@@ -79,7 +81,7 @@ function createFixtureServer({ torrentHashes }) {
       { id: "e2e-series", type: "series", name: "E2E Series" }
     ]
   };
-  const movieNames = ["Direct MP4", "HLS Stream", "MKV Remux", "Torrent MP4", "Torrent MKV"];
+  const movieNames = ["Direct MP4", "HLS Stream", "MKV Remux", "Torrent MP4", "Torrent MKV", "Long Keyframe MKV"];
   const toMeta = (name, index) => ({
     id: `e2e-movie-${index}`,
     type: "movie",
@@ -104,6 +106,7 @@ function createFixtureServer({ torrentHashes }) {
     if (id === "e2e-movie-0" || id.startsWith("e2e-series-1:")) return [{ name: "E2E\nDirect", title: "direct.mp4", url: `${FIXTURE}/media/direct.mp4` }];
     if (id === "e2e-movie-1") return [{ name: "E2E\nHLS", title: "index.m3u8", url: `${FIXTURE}/media/hls/index.m3u8` }];
     if (id === "e2e-movie-2") return [{ name: "E2E\nMKV", title: "remux.mkv", url: `${FIXTURE}/media/remux.mkv` }];
+    if (id === "e2e-movie-5") return [{ name: "E2E\nMKV", title: "longgop.mkv", url: `${FIXTURE}/media/longgop.mkv` }];
     if (id === "e2e-movie-3") return [{ name: "E2E\nTorrent", title: "torrent-video.mp4", infoHash: torrentHashes.mp4, sources: [tracker] }];
     if (id === "e2e-movie-4") return [{ name: "E2E\nTorrent", title: "torrent-remux.mkv", infoHash: torrentHashes.mkv, sources: [tracker] }];
     return [];

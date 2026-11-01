@@ -3,11 +3,14 @@
 import { randomUUID } from "node:crypto";
 import { rm } from "node:fs/promises";
 import path from "node:path";
-import { HlsJob, buildHlsArgs, decidePlayback, directorySize, firstSegmentTime, mimeForName, runProbe, selectFileIndex, summarizeProbe } from "./media.js";
+import { HlsJob, buildHlsArgs, decidePlayback, directorySize, firstSegmentTime, mimeForName, pickDefaultAudio, runProbe, selectFileIndex, summarizeProbe } from "./media.js";
 import { isValidInfoHash } from "./torrentEngine.js";
 import { UpstreamError, parsePublicUrl, safeGet } from "./netGuard.js";
 
 const ABANDONED_AFTER_MS = 30000;
+const CONVERSION_ABANDONED_AFTER_MS = 15000;
+const RESOLVED_LINK_TTL_MS = 5 * 60 * 1000;
+const MAX_RESOLVED_LINKS = 50;
 
 export class ApiError extends Error {
   constructor(status, code, message) {
@@ -23,7 +26,34 @@ function fileFilename(file) {
 
 export function createPlaybackManager({ config, engine, tokens, tools, logger = console, publicBase, loopbackBase }) {
   const sessions = new Map();
+  // Retrying a source shouldn't pay for the addon's slow redirect a second time.
+  const resolvedLinks = new Map();
   let activeFfmpeg = 0;
+
+  function rememberResolvedLink(sourceUrl, finalUrl) {
+    if (resolvedLinks.size >= MAX_RESOLVED_LINKS) resolvedLinks.delete(resolvedLinks.keys().next().value);
+    resolvedLinks.set(sourceUrl, { url: finalUrl, expiresAt: Date.now() + RESOLVED_LINK_TTL_MS });
+  }
+
+  function recallResolvedLink(sourceUrl) {
+    const entry = resolvedLinks.get(sourceUrl);
+    if (entry && entry.expiresAt > Date.now()) return entry.url;
+    resolvedLinks.delete(sourceUrl);
+    return null;
+  }
+
+  // A conversion left behind by a closed player shouldn't block the one you just asked for. Active
+  // players request the playlist every few seconds, so a quiet one has been abandoned.
+  async function freeConversionSlot(current) {
+    const now = Date.now();
+    const idle = [...sessions.values()]
+      .filter((other) => other !== current && other.hlsJob?.isRunning() && !other.activeStreams.size && now - other.lastActivityAt > CONVERSION_ABANDONED_AFTER_MS)
+      .sort((a, b) => a.lastActivityAt - b.lastActivityAt);
+    if (idle[0]) {
+      logPhase(idle[0], "closed: abandoned conversion");
+      await close(idle[0]);
+    }
+  }
 
   function touch(session) {
     session.lastActivityAt = Date.now();
@@ -72,9 +102,13 @@ export function createPlaybackManager({ config, engine, tokens, tools, logger = 
 
   async function startHls(session, { start = 0, audioIndex = null } = {}) {
     const startAt = Math.max(0, Number(start) || 0);
+    const chosenIndex = audioIndex ?? session.audioIndex;
     const audio =
-      session.summary.audioTracks.find((track) => track.index === Number(audioIndex)) || session.summary.audioTracks[0] || null;
+      session.summary.audioTracks.find((track) => track.index === Number(chosenIndex)) ||
+      pickDefaultAudio(session.summary.audioTracks, session.preferredAudio);
+    session.audioIndex = audio?.index ?? null;
     await stopHls(session);
+    if (activeFfmpeg >= config.maxFfmpegProcesses) await freeConversionSlot(session);
     if (activeFfmpeg >= config.maxFfmpegProcesses) {
       throw new ApiError(429, "TOO_MANY_CONVERSIONS", "The backend is already converting as many videos as it allows.");
     }
@@ -91,7 +125,8 @@ export function createPlaybackManager({ config, engine, tokens, tools, logger = 
         start: startAt,
         audioIndex: audio?.index ?? null,
         audioCodec: audio?.codec || "",
-        decision: session.decision
+        decision: session.decision,
+        canPaceInput: tools.inputPacing
       })
     });
     activeFfmpeg += 1;
@@ -199,6 +234,8 @@ export function createPlaybackManager({ config, engine, tokens, tools, logger = 
       capabilities: body.capabilities && typeof body.capabilities === "object" ? body.capabilities : {},
       startAt: Math.max(0, Number(body.startAt) || 0),
       forceRemux: body.forceRemux === true,
+      preferredAudio: typeof body.preferredAudio === "string" ? body.preferredAudio.slice(0, 8) : "en",
+      audioIndex: null,
       createdAt: now,
       lastActivityAt: now,
       hlsGeneration: 0,
@@ -255,6 +292,7 @@ export function createPlaybackManager({ config, engine, tokens, tools, logger = 
       const session = {
         ...baseSession("url", body),
         url: url.toString(),
+        resolvedUrl: recallResolvedLink(url.toString()),
         headers: body.headers && typeof body.headers === "object" ? body.headers : {},
         filename: path.basename(url.pathname)
       };
@@ -291,6 +329,7 @@ export function createPlaybackManager({ config, engine, tokens, tools, logger = 
         mode: session.mode,
         duration: session.duration || 0,
         startOffset: session.mode === "hls" ? session.startOffset : 0,
+        audioIndex: session.audioIndex,
         info: session.summary
           ? { container: session.summary.container, videoCodec: session.summary.videoCodec, videoTag: session.summary.videoTag, width: session.summary.width, height: session.summary.height }
           : null,
@@ -329,6 +368,7 @@ export function createPlaybackManager({ config, engine, tokens, tools, logger = 
           if (session.resolvedUrl && (upstream.statusCode || 500) >= 400) {
             upstream.resume();
             session.resolvedUrl = null;
+            resolvedLinks.delete(session.url);
             upstream = await open(session.url);
           }
         } catch (error) {
@@ -344,6 +384,7 @@ export function createPlaybackManager({ config, engine, tokens, tools, logger = 
         if (!session.resolvedUrl) logPhase(session, "source link resolved");
         session.upstreamError = null;
         session.resolvedUrl = upstream.finalUrl;
+        rememberResolvedLink(session.url, upstream.finalUrl);
         const headers = {};
         for (const name of ["content-type", "content-length", "content-range", "accept-ranges"]) {
           if (upstream.headers[name]) headers[name] = upstream.headers[name];

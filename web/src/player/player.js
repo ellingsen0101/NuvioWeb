@@ -1,6 +1,6 @@
 import { subtitleRepository } from "../../../js/data/repository/subtitleRepository.js";
+import { getPreferredSubtitleLanguage, matchesLanguage, pickEnglishAudio, sortSubtitlesByLanguage } from "../services/language.js";
 import { watchProgressRepository } from "../../../js/data/repository/watchProgressRepository.js";
-import { PlayerSettingsStore } from "../../../js/data/local/playerSettingsStore.js";
 import { button, clear, formatDuration, h, icon, iconButton, openSheet, toast } from "../lib/dom.js";
 import { goBack, navigate } from "../lib/router.js";
 import { Backend, BackendError } from "../services/backend.js";
@@ -12,13 +12,13 @@ import { cueAt, loadSubtitleCues } from "./subtitles.js";
 
 const CONTROLS_HIDE_MS = 3500;
 const PROGRESS_SAVE_MS = 15000;
-const STATUS_POLL_MS = 1500;
+const STATUS_POLL_MS = 500;
 const SEEK_STEP_S = 10;
 const SPEEDS = [0.5, 0.75, 1, 1.25, 1.5, 2];
 
 function languageName(code) {
   try {
-    return new Intl.DisplayNames([navigator.language || "en"], { type: "language" }).of(code) || code;
+    return new Intl.DisplayNames(["en"], { type: "language" }).of(code) || code;
   } catch {
     return code || "Unknown";
   }
@@ -230,9 +230,9 @@ export function mountPlayer(node, route) {
       const result = await Backend.startHls(playbackId, { start: seconds, audioIndex: nextAudio });
       if (disposed) return;
       audioIndex = nextAudio;
+      // Copied video starts on the keyframe before the target. Playing from there is much quicker
+      // than waiting for the exact position, and the offset keeps the clock and subtitles right.
       timeOffset = result.startOffset || 0;
-      // Copied video starts on the keyframe before the target, so this finishes the seek precisely.
-      pendingResumeS = Math.max(0, seconds - timeOffset);
       syncNativeTrack();
       await engine.load({ url: result.url, kind: "hls" });
       video.play().catch(onPlayRejected);
@@ -583,7 +583,8 @@ export function mountPlayer(node, route) {
     const body = {
       capabilities,
       startAt: requestedStart,
-      forceRemux
+      forceRemux,
+      preferredAudio: "en"
     };
     const infoHash = streamInfoHash(activeStream);
     const created = infoHash
@@ -611,7 +612,12 @@ export function mountPlayer(node, route) {
     backendAudio = ready.audioTracks || [];
     sourceInfo = ready.info || null;
     timeOffset = isBackendHls ? Number(ready.startOffset || 0) : 0;
-    if (isBackendHls) pendingResumeS = Math.max(0, requestedStart - timeOffset);
+    if (isBackendHls) pendingResumeS = 0;
+    audioIndex = ready.audioIndex ?? null;
+    const playingAudio = backendAudio.find((track) => track.index === audioIndex);
+    if (playingAudio?.language && !matchesLanguage(playingAudio, "en")) {
+      toast(`This source has no English audio. Playing ${languageName(playingAudio.language)}.`);
+    }
     if (ready.mode === "direct" && ready.sourceUrl) {
       // Nothing to convert, so the video doesn't need to pass through the backend.
       const finished = playbackId;
@@ -692,13 +698,10 @@ export function mountPlayer(node, route) {
         lang: entry.lang
       }))
     ];
-    const settings = PlayerSettingsStore.get();
-    const preferred = String(settings?.subtitleStyle?.preferredLanguage || "off").toLowerCase();
+    const preferred = getPreferredSubtitleLanguage();
+    subtitleOptions = sortSubtitlesByLanguage(subtitleOptions, preferred === "off" ? "en" : preferred);
     if (preferred !== "off") {
-      const match = subtitleOptions.find((option) => {
-        const language = String(option.lang || "").toLowerCase();
-        return language === preferred || language.startsWith(preferred) || preferred.startsWith(language.slice(0, 2));
-      });
+      const match = subtitleOptions.find((option) => matchesLanguage(option, preferred));
       if (match) selectSubtitle(match);
     }
   }
@@ -706,6 +709,9 @@ export function mountPlayer(node, route) {
   // Events
   const listeners = [
     ["loadedmetadata", () => {
+      // A file with several audio tracks, played directly by the browser, starts on its first one.
+      const english = !isBackendHls && pickEnglishAudio(engine.audioTracks());
+      if (english && !english.active) engine.selectAudio(english.id);
       if (pendingResumeS > 0.5) {
         const target = pendingResumeS;
         pendingResumeS = 0;
@@ -752,6 +758,8 @@ export function mountPlayer(node, route) {
       // A format the browser refused gets one automatic retry through the backend, when connected.
       if ((code === 4 || code === 3) && !triedBackendFallback && !playbackId && Backend.isConnected() && /^https?:/i.test(activeStream.url || "")) {
         triedBackendFallback = true;
+        forceRemux = true;
+        pendingResumeS = position() || pendingResumeS;
         setBuffering(true, "Converting for this device…");
         startSource();
         return;

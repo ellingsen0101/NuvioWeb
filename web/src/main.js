@@ -130,7 +130,7 @@ export async function enterApp(profileId = null) {
   await ProfileManager.setActiveProfile(id);
   profileEntered = true;
   StartupSyncService.enableProfileScopedSync();
-  await I18n.init();
+  await I18n.init("en");
   ThemeManager.apply({ enforceAccess: true, access: MemberAccessRepository.getCachedAccess() });
   void MemberAccessRepository.getAccess().catch(() => null);
   const syncing = StartupSyncService.requestSyncNow({ notifyPullCompleted: true }).catch((error) => {
@@ -224,7 +224,7 @@ async function boot() {
   if (location.hash && !isGateRoute(parseHash().name)) launchHash = location.hash;
   Platform.init();
   installAddonFetchFallback();
-  await I18n.init();
+  await I18n.init("en");
   ThemeManager.apply();
 
   const outlet = renderShell();

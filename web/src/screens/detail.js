@@ -152,7 +152,7 @@ function episodeRow({ video, progress, onPlay, onToggleWatched, watched }) {
         "span",
         { class: "episode-text" },
         h("strong", {}, video.title || `Episode ${video.episode}`),
-        video.released ? h("small", {}, new Date(video.released).toLocaleDateString()) : null,
+        video.released ? h("small", {}, new Date(video.released).toLocaleDateString("en-GB")) : null,
         video.overview || video.description ? h("span", { class: "episode-desc" }, video.overview || video.description) : null
       )
     ),

@@ -64,6 +64,11 @@ export function createRateLimiter({ now = Date.now } = {}) {
         for (const [entryKey, entry] of buckets) if (entry.resetAt <= time) buckets.delete(entryKey);
       }
       return bucket.count <= limit;
+    },
+    // Checks the window without counting a new attempt.
+    isExhausted(key, limit) {
+      const bucket = buckets.get(key);
+      return Boolean(bucket && bucket.resetAt > now() && bucket.count >= limit);
     }
   };
 }

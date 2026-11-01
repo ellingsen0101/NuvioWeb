@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { loadConfig } from "../src/config.js";
-import { buildHlsArgs, decidePlayback, rewritePlaylist, selectFileIndex, summarizeProbe } from "../src/media.js";
+import { buildHlsArgs, decidePlayback, pickDefaultAudio, rewritePlaylist, selectFileIndex, summarizeProbe } from "../src/media.js";
 import { isBlockedAddress, parsePublicUrl, sanitizeUpstreamHeaders } from "../src/netGuard.js";
 import { createRateLimiter, createTokenService } from "../src/tokens.js";
 import { trackersFromSources } from "../src/torrentEngine.js";
@@ -63,7 +63,11 @@ test("rate limiter blocks past the limit and resets", () => {
   assert.equal(limiter.allow("a", 2, 100), true);
   assert.equal(limiter.allow("a", 2, 100), false);
   assert.equal(limiter.allow("b", 2, 100), true);
+  assert.equal(limiter.isExhausted("a", 2), true);
+  assert.equal(limiter.isExhausted("b", 2), false);
+  assert.equal(limiter.isExhausted("unseen", 2), false);
   time = 200;
+  assert.equal(limiter.isExhausted("a", 2), false);
   assert.equal(limiter.allow("a", 2, 100), true);
 });
 
@@ -202,6 +206,42 @@ test("ffmpeg output paths use forward slashes, which fMP4's init segment depends
   const args = buildHlsArgs({ inputUrl: "http://127.0.0.1:1/file", outputDir: "C:\\cache\\hls\\a", decision: { video: "copy", segmentType: "fmp4" } });
   assert.equal(args.at(-1), "C:/cache/hls/a/index.m3u8");
   assert.equal(args[args.indexOf("-hls_segment_filename") + 1], "C:/cache/hls/a/seg%05d.m4s");
+});
+
+test("copied HEVC gets its parameter sets moved where Apple requires them", () => {
+  const hevc = buildHlsArgs({ inputUrl: "http://127.0.0.1:1/file", outputDir: "out", decision: { video: "copy", segmentType: "fmp4" } });
+  assert.equal(hevc[hevc.indexOf("-tag:v") + 1], "hvc1");
+  assert.equal(hevc[hevc.indexOf("-bsf:v") + 1], "hevc_mp4toannexb,extract_extradata");
+  const h264 = buildHlsArgs({ inputUrl: "http://127.0.0.1:1/file", outputDir: "out", decision: { video: "copy", segmentType: "mpegts" } });
+  assert.ok(!h264.includes("-bsf:v"));
+});
+
+test("copied video splits by time, and only transcodes claim independent segments", () => {
+  const copy = buildHlsArgs({ inputUrl: "http://127.0.0.1:1/file", outputDir: "out", decision: { video: "copy", segmentType: "mpegts" } });
+  assert.equal(copy[copy.indexOf("-hls_flags") + 1], "split_by_time");
+  const transcode = buildHlsArgs({ inputUrl: "http://127.0.0.1:1/file", outputDir: "out", decision: { video: "transcode", segmentType: "mpegts" } });
+  assert.equal(transcode[transcode.indexOf("-hls_flags") + 1], "independent_segments");
+});
+
+test("input pacing is only used where ffmpeg supports it", () => {
+  const base = { inputUrl: "http://127.0.0.1:1/file", outputDir: "out", decision: { video: "copy", segmentType: "mpegts" } };
+  assert.ok(!buildHlsArgs(base).includes("-readrate"));
+  const paced = buildHlsArgs({ ...base, canPaceInput: true });
+  assert.ok(paced.indexOf("-readrate") < paced.indexOf("-i"), "pacing is an input option");
+});
+
+test("the default audio track is English and not a commentary", () => {
+  const tracks = [
+    { index: 1, language: "nor", label: "nor" },
+    { index: 2, language: "eng", label: "Commentary by the director" },
+    { index: 3, language: "eng", label: "Surround" },
+    { index: 4, language: "", label: "English 2.0" }
+  ];
+  assert.equal(pickDefaultAudio(tracks).index, 3);
+  assert.equal(pickDefaultAudio(tracks.slice(3)).index, 4);
+  assert.equal(pickDefaultAudio([tracks[0]]).index, 1, "falls back to what the file has");
+  assert.equal(pickDefaultAudio([tracks[1], tracks[0]]).index, 1, "a commentary is the last resort");
+  assert.equal(pickDefaultAudio([]), null);
 });
 
 test("playlists get the media token on every URI and lose directory paths", () => {

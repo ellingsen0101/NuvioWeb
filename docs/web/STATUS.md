@@ -63,7 +63,8 @@ One movie through AIOStreams returned 279 sources: 40 play directly, and the res
 | Audio track switch, on that source | **Worked.** About 7 seconds, and it kept its position |
 | Subtitles from the OpenSubtitles addon | **Displayed.** Timing wasn't checked against the audio |
 | First iPhone test, before fixes | "Direct" gave audio with no picture (consistent with MP4 HEVC tagged hev1, which is now converted). One "Needs backend" source failed, one played in about 60 seconds, and subtitles were sometimes out of time |
-| Backend preparation time after fixes, measured on this PC with real sources | 5 to 16 seconds. **The iPhone hasn't been retested yet**, so its total startup time is unknown |
+| Second iPhone test | "Direct" gave a decode error (HEVC remux had an empty hvcC, now fixed) and backend still took about a minute (long keyframe gaps made huge segments, now split by time) |
+| Time until 3 segments are ready, measured on this PC with real sources, after those fixes | 11 to 16 seconds. Files the iPhone can play as they are: about 2 seconds to check. **The iPhone hasn't been retested**, so its total startup time and the HEVC fix are unconfirmed |
 | Subtitle timing after fixes | Offset error fixed and tested with generated video. **Not confirmed on the iPhone.** A subtitle made for a different release of a film can still drift |
 
 High-bitrate sources need real bandwidth from backend to phone: one 4-second segment of that source was about 18 MB, or roughly 36 Mbit/s.

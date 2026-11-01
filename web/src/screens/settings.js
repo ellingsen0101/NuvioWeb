@@ -1,7 +1,6 @@
 import { AuthManager } from "../../../js/core/auth/authManager.js";
 import { StartupSyncService } from "../../../js/core/profile/startupSyncService.js";
 import { ProfileManager } from "../../../js/core/profile/profileManager.js";
-import { PlayerSettingsStore } from "../../../js/data/local/playerSettingsStore.js";
 import { ServerConfigurationStore } from "../../../js/data/local/serverConfigurationStore.js";
 import { ThemeStore, accentColorForTheme } from "../../../js/data/local/themeStore.js";
 import { addonRepository } from "../../../js/data/repository/addonRepository.js";
@@ -11,6 +10,7 @@ import { MemberAccessRepository } from "../../../js/data/remote/supabase/memberA
 import { button, clear, fill, h, icon, iconButton, image, spinner, toast } from "../lib/dom.js";
 import { goBack, hrefFor, navigate } from "../lib/router.js";
 import { Backend } from "../services/backend.js";
+import { getPreferredSubtitleLanguage, setPreferredSubtitleLanguage } from "../services/language.js";
 import { showLogin, switchProfile } from "../main.js";
 
 const SECTIONS = [
@@ -258,22 +258,22 @@ function renderStreaming(container) {
 }
 
 function renderPlayback(container) {
-  const settings = PlayerSettingsStore.get();
-  const current = settings?.subtitleStyle?.preferredLanguage || "off";
+  const current = getPreferredSubtitleLanguage();
   const select = h(
     "select",
     {
       "aria-label": "Preferred subtitle language",
       onChange: (event) => {
-        PlayerSettingsStore.set({
-          subtitleStyle: { ...PlayerSettingsStore.get().subtitleStyle, preferredLanguage: event.target.value }
-        });
+        setPreferredSubtitleLanguage(event.target.value);
         toast("Saved");
       }
     },
     SUBTITLE_LANGUAGES.map(([value, label]) => h("option", { value, selected: value === current }, label))
   );
-  container.append(settingsRow("Subtitles", "Turned on automatically when a matching track exists.", select));
+  container.append(
+    settingsRow("Subtitles", "Turned on automatically when a matching track exists. Saved on this device only.", select),
+    settingsRow("Audio", "English by default when a source has it. You can switch tracks in the player.", null)
+  );
 }
 
 function renderAppearance(container) {

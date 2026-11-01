@@ -316,7 +316,10 @@ test.describe("playback", () => {
     await page.mouse.move(100, 100);
     await page.locator(".player-gestures").click({ position: { x: 150, y: 150 } }).catch(() => null);
     await page.getByRole("button", { name: "Subtitles" }).click({ force: true });
-    await page.locator(".picker-item", { hasText: "English" }).click();
+    // English is on by default, and listed first after "Off".
+    await expect(page.locator(".picker-item").nth(1)).toContainText("English");
+    await expect(page.locator(".picker-item").nth(1)).toHaveClass(/is-active/, { timeout: 10000 });
+    await page.locator(".sheet-head .icon-btn").click();
     await expect(page.locator(".player-sub-line")).toHaveText("Nuvio test subtitle line", { timeout: 10000 });
 
     // A 30 second delay means the first cue is still showing later than it otherwise would.
@@ -380,6 +383,18 @@ test.describe("playback through the backend", () => {
     });
     await expect.poll(() => page.locator(".player-time").first().textContent(), { timeout: 30000 }).toMatch(/1:1\d/);
     await expectPlaying(page, { atLeast: 0.2 });
+  });
+
+  test("a file with keyframes 10 seconds apart plays across segments that don't start on one", async ({ page }) => {
+    await openStream(page, "e2e-movie-5");
+    await expectPlaying(page, { atLeast: 13 });
+    const stalled = await page.locator(".player-root").evaluate((root) => root.classList.contains("is-loading"));
+    expect(stalled).toBe(false);
+
+    // A seek forward inside what's already converted lands in the middle of a keyframe interval.
+    await page.locator(".player-video").evaluate((video) => { video.currentTime = 25; });
+    await expectPlaying(page, { atLeast: 26 });
+    await expect(page.locator(".player-error")).toBeHidden();
   });
 
   test("a torrent with a browser-ready MP4 streams from the swarm", async ({ page }) => {
