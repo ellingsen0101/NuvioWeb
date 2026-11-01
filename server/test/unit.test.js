@@ -142,6 +142,17 @@ test("playback mode follows the container, codecs and device", () => {
   assert.equal(decidePlayback(summary({ pixFmt: "yuv420p10le" }), {}, { allowTranscode: true }).video, "transcode");
 });
 
+test("HEVC under the hev1 tag is remuxed, because Apple's players show no picture for it", () => {
+  const caps = { hevc: true };
+  assert.equal(decidePlayback(summary({ videoCodec: "hevc", videoTag: "hvc1" }), caps).mode, "direct");
+  assert.deepEqual(decidePlayback(summary({ videoCodec: "hevc", videoTag: "hev1" }), caps), { mode: "hls", video: "copy", segmentType: "fmp4" });
+});
+
+test("a retry can force a remux for a file that looks directly playable", () => {
+  assert.equal(decidePlayback(summary(), {}).mode, "direct");
+  assert.equal(decidePlayback(summary(), {}, { forceRemux: true }).mode, "hls");
+});
+
 test("a codec the device can't decode is refused unless transcoding is on", () => {
   const hevc = summary({ container: "matroska,webm", videoCodec: "hevc" });
   const refused = decidePlayback(hevc, { hevc: false });
@@ -184,6 +195,13 @@ test("ffmpeg arguments restrict input protocols and select the audio stream", ()
   assert.ok(args.includes("0:3"));
   assert.equal(args[args.indexOf("-c:a") + 1], "aac");
   assert.equal(args[args.indexOf("-c:v") + 1], "copy");
+  assert.ok(args.includes("-copyts"), "copied video keeps source times, to find its real start");
+});
+
+test("ffmpeg output paths use forward slashes, which fMP4's init segment depends on", () => {
+  const args = buildHlsArgs({ inputUrl: "http://127.0.0.1:1/file", outputDir: "C:\\cache\\hls\\a", decision: { video: "copy", segmentType: "fmp4" } });
+  assert.equal(args.at(-1), "C:/cache/hls/a/index.m3u8");
+  assert.equal(args[args.indexOf("-hls_segment_filename") + 1], "C:/cache/hls/a/seg%05d.m4s");
 });
 
 test("playlists get the media token on every URI and lose directory paths", () => {

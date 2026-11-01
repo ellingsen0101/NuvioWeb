@@ -126,6 +126,7 @@ export function safeGet(rawUrl, { headers = {}, timeoutMs = 15000, allowPrivate 
             return;
           }
           request.setTimeout(0);
+          response.finalUrl = url.toString();
           resolve(response);
         }
       );

@@ -6,9 +6,9 @@ What each word means here:
 - **Stand-in**: tested only against this project's mock account server or test addon.
 - **Not verified**: written, but never run in the environment that matters.
 
-**Nothing has been run on a real iPhone or in iOS Safari.** The closest available was Playwright's WebKit
-on Windows with an iPhone profile, which checks scripts and layout but not playback, safe areas or Home
-Screen behaviour.
+**Real iPhone testing has started.** So far on one iPhone: sign-in and backend connection
+work. Playback results are in "Real sources" below. Everything else marked Tested ran in Edge or in Playwright's
+WebKit on Windows, which check scripts and layout but not iOS playback, safe areas or Home Screen behaviour.
 
 ## Blocked: needs a decision or something from you
 
@@ -62,7 +62,9 @@ One movie through AIOStreams returned 279 sources: 40 play directly, and the res
 | Seek past the converted part, on that source | **Worked.** About 11 seconds |
 | Audio track switch, on that source | **Worked.** About 7 seconds, and it kept its position |
 | Subtitles from the OpenSubtitles addon | **Displayed.** Timing wasn't checked against the audio |
-| Same tests on an iPhone, or over the internet | **Not verified.** Everything ran on one PC, so network speed wasn't a factor |
+| First iPhone test, before fixes | "Direct" gave audio with no picture (consistent with MP4 HEVC tagged hev1, which is now converted). One "Needs backend" source failed, one played in about 60 seconds, and subtitles were sometimes out of time |
+| Backend preparation time after fixes, measured on this PC with real sources | 5 to 16 seconds. **The iPhone hasn't been retested yet**, so its total startup time is unknown |
+| Subtitle timing after fixes | Offset error fixed and tested with generated video. **Not confirmed on the iPhone.** A subtitle made for a different release of a film can still drift |
 
 High-bitrate sources need real bandwidth from backend to phone: one 4-second segment of that source was about 18 MB, or roughly 36 Mbit/s.
 

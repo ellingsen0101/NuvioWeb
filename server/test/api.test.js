@@ -23,6 +23,8 @@ const hasFfmpeg = (() => {
   }
 })();
 
+const hasX265 = hasFfmpeg && execFileSync("ffmpeg", ["-hide_banner", "-encoders"], { encoding: "utf8" }).includes("libx265");
+
 const silent = { info() {}, warn() {}, error() {} };
 const workDir = mkdtempSync(path.join(os.tmpdir(), "nuvio-backend-test-"));
 
@@ -232,11 +234,23 @@ describe("URL playback and remuxing", { skip: !hasFfmpeg && "ffmpeg isn't instal
   let mp4;
   let mkv;
   let originPort;
+  let redirectHits = 0;
   before(async () => {
     mp4 = makeVideo("direct.mp4", ["-c:a", "aac", "-movflags", "+faststart"]);
     mkv = makeVideo("remux.mkv", ["-c:a", "ac3"]);
-    const files = { "/video/direct.mp4": readFileSync(mp4), "/video/remux.mkv": readFileSync(mkv) };
+    const longGop = makeVideo("longgop.mkv", ["-c:a", "aac", "-g", "240", "-keyint_min", "240", "-sc_threshold", "0"]);
+    const files = { "/video/direct.mp4": readFileSync(mp4), "/video/remux.mkv": readFileSync(mkv), "/video/longgop.mkv": readFileSync(longGop) };
+    if (hasX265) {
+      const hevc = path.join(workDir, "hevc.mkv");
+      execFileSync("ffmpeg", ["-y", "-loglevel", "error", "-f", "lavfi", "-i", "testsrc2=size=320x180:rate=24:duration=12", "-f", "lavfi", "-i", "sine=frequency=440:duration=12", "-c:v", "libx265", "-preset", "ultrafast", "-x265-params", "log-level=error:keyint=48", "-pix_fmt", "yuv420p10le", "-c:a", "ac3", hevc]);
+      files["/video/hevc.mkv"] = readFileSync(hevc);
+    }
     origin = http.createServer((request, response) => {
+      if (request.url.startsWith("/redirect/")) {
+        redirectHits += 1;
+        response.writeHead(302, { Location: request.url.replace("/redirect/", "/video/") }).end();
+        return;
+      }
       const file = files[request.url];
       if (!file) {
         response.writeHead(404).end();
@@ -269,6 +283,7 @@ describe("URL playback and remuxing", { skip: !hasFfmpeg && "ffmpeg isn't instal
     assert.equal(ready.state, "ready", ready.message);
     assert.equal(ready.mode, "direct");
     assert.ok(Math.abs(ready.duration - 20) < 1);
+    assert.equal(ready.sourceUrl, `http://127.0.0.1:${originPort}/video/direct.mp4`);
     const partial = await fetch(ready.url, { headers: { Range: "bytes=100-199" } });
     assert.equal(partial.status, 206);
     assert.equal((await partial.arrayBuffer()).byteLength, 100);
@@ -294,6 +309,59 @@ describe("URL playback and remuxing", { skip: !hasFfmpeg && "ffmpeg isn't instal
     assert.equal(seek.status, 200, JSON.stringify(seek.data));
     assert.equal(seek.data.startOffset, 12);
     assert.match(await (await fetch(seek.data.url)).text(), /#EXTM3U/);
+    await api(ctx.base, `/v1/playback/${created.id}`, { method: "DELETE", token });
+  });
+
+  test("a seek reports where the copied video really starts, not the time asked for", async () => {
+    const { data: created } = await api(ctx.base, "/v1/playback/url", { method: "POST", token, body: { url: `http://127.0.0.1:${originPort}/video/longgop.mkv`, capabilities: {} } });
+    const ready = await waitReady(ctx.base, token, created.id);
+    assert.equal(ready.state, "ready", ready.message);
+    assert.ok(ready.startOffset < 0.5, `start ${ready.startOffset}`);
+    // Keyframes are every 10 seconds, so a seek to 12 has to begin at 10.
+    const seek = await api(ctx.base, `/v1/playback/${created.id}/hls`, { method: "POST", token, body: { start: 12 } });
+    assert.equal(seek.status, 200, JSON.stringify(seek.data));
+    assert.ok(Math.abs(seek.data.startOffset - 10) < 0.3, `offset was ${seek.data.startOffset}`);
+    await api(ctx.base, `/v1/playback/${created.id}`, { method: "DELETE", token });
+  });
+
+  test("10-bit HEVC is remuxed to fMP4 with a reachable init segment", { skip: !hasX265 && "this ffmpeg has no libx265" }, async () => {
+    const { data: created } = await api(ctx.base, "/v1/playback/url", { method: "POST", token, body: { url: `http://127.0.0.1:${originPort}/video/hevc.mkv`, capabilities: { hevc: true } } });
+    const ready = await waitReady(ctx.base, token, created.id);
+    assert.equal(ready.state, "ready", ready.message);
+    assert.equal(ready.mode, "hls");
+    assert.equal(ready.info.videoCodec, "hevc");
+    const playlist = await (await fetch(ready.url)).text();
+    const init = /#EXT-X-MAP:URI="([^"]+)"/.exec(playlist)?.[1];
+    assert.ok(init, "playlist names an init segment");
+    const initResponse = await fetch(new URL(init, ready.url));
+    assert.equal(initResponse.status, 200);
+    assert.ok((await initResponse.arrayBuffer()).byteLength > 100);
+    const segment = playlist.split("\n").find((line) => line && !line.startsWith("#"));
+    assert.match(segment, /seg\d+\.m4s\?t=/);
+    assert.equal((await fetch(new URL(segment, ready.url))).status, 200);
+    await api(ctx.base, `/v1/playback/${created.id}`, { method: "DELETE", token });
+  });
+
+  test("a redirecting source is only resolved once", async () => {
+    const before = redirectHits;
+    const { data: created } = await api(ctx.base, "/v1/playback/url", { method: "POST", token, body: { url: `http://127.0.0.1:${originPort}/redirect/remux.mkv`, capabilities: {} } });
+    const ready = await waitReady(ctx.base, token, created.id);
+    assert.equal(ready.state, "ready", ready.message);
+    assert.equal(redirectHits - before, 1);
+    await api(ctx.base, `/v1/playback/${created.id}`, { method: "DELETE", token });
+  });
+
+  test("a source that fails says so", async () => {
+    const { data: created } = await api(ctx.base, "/v1/playback/url", { method: "POST", token, body: { url: `http://127.0.0.1:${originPort}/video/missing.mkv`, capabilities: {} } });
+    const final = await waitReady(ctx.base, token, created.id);
+    assert.equal(final.state, "error");
+    assert.match(final.message, /answered 404/);
+  });
+
+  test("a retry can force a remux", async () => {
+    const { data: created } = await api(ctx.base, "/v1/playback/url", { method: "POST", token, body: { url: `http://127.0.0.1:${originPort}/video/direct.mp4`, capabilities: {}, forceRemux: true } });
+    const ready = await waitReady(ctx.base, token, created.id);
+    assert.equal(ready.mode, "hls", ready.message);
     await api(ctx.base, `/v1/playback/${created.id}`, { method: "DELETE", token });
   });
 

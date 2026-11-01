@@ -364,6 +364,11 @@ test.describe("playback through the backend", () => {
     await expectPlaying(page);
     await expect(page.locator(".player-time").last()).toHaveText("1:30");
 
+    await page.getByRole("button", { name: "Playback details" }).click({ force: true });
+    await expect(page.locator(".details-list")).toContainText("Converted by backend");
+    await expect(page.locator(".details-list")).toContainText("h264");
+    await page.locator(".sheet-head .icon-btn").click();
+
     await page.getByRole("button", { name: "Audio" }).click({ force: true });
     await expect(page.locator(".picker-item")).toContainText("AC3");
     await page.locator(".sheet-head .icon-btn").click();

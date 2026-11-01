@@ -2,7 +2,7 @@
 // ffmpeg only ever reads this service's own loopback file endpoint, never a remote URL, so it
 // can't be used to bypass the SSRF checks. Its protocols are limited to match.
 import { spawn } from "node:child_process";
-import { mkdir, readFile, rm, stat } from "node:fs/promises";
+import { mkdir, readFile, rm, stat, writeFile } from "node:fs/promises";
 import path from "node:path";
 
 const VIDEO_EXTENSIONS = new Set([".mp4", ".m4v", ".mkv", ".webm", ".mov", ".avi", ".ts", ".m2ts", ".mpg", ".mpeg", ".wmv", ".flv"]);
@@ -64,7 +64,11 @@ export function summarizeProbe(probe = {}) {
   return {
     container: String(probe.format?.format_name || ""),
     duration: Number(probe.format?.duration) || 0,
+    startTime: Number(probe.format?.start_time) || 0,
     videoCodec: video?.codec_name || "",
+    videoTag: String(video?.codec_tag_string || "").toLowerCase(),
+    width: video?.width || 0,
+    height: video?.height || 0,
     pixFmt: video?.pix_fmt || "",
     audioTracks: streams.filter((stream) => stream.codec_type === "audio").map(describe),
     subtitleTracks: streams.filter((stream) => stream.codec_type === "subtitle").map(describe)
@@ -87,17 +91,22 @@ function isPlayableH264(summary) {
   return summary.videoCodec === "h264" && !/10le|12le/.test(summary.pixFmt);
 }
 
-export function decidePlayback(summary, capabilities = {}, { allowTranscode = false, canRemux = true } = {}) {
+// Apple's players only accept HEVC in MP4 under the hvc1 tag. With hev1 they play audio and no picture.
+function isDirectHevc(summary, capabilities) {
+  return summary.videoCodec === "hevc" && Boolean(capabilities.hevc) && !/^(hev1|dvhe)$/.test(summary.videoTag || "");
+}
+
+export function decidePlayback(summary, capabilities = {}, { allowTranscode = false, canRemux = true, forceRemux = false } = {}) {
   const container = summary.container;
   const video = summary.videoCodec;
   const firstAudio = summary.audioTracks[0]?.codec || "";
   const isMp4 = /mp4|mov/.test(container);
   const isWebm = /webm|matroska/.test(container) && summary.isWebmFile === true;
 
-  if (isMp4 && (isPlayableH264(summary) || (video === "hevc" && capabilities.hevc)) && isDirectAudio(firstAudio, capabilities)) {
+  if (!forceRemux && isMp4 && (isPlayableH264(summary) || isDirectHevc(summary, capabilities)) && isDirectAudio(firstAudio, capabilities)) {
     return { mode: "direct" };
   }
-  if (isWebm && ((video === "vp9" && capabilities.vp9) || video === "vp8") && isDirectAudio(firstAudio, capabilities)) {
+  if (!forceRemux && isWebm && ((video === "vp9" && capabilities.vp9) || video === "vp8") && isDirectAudio(firstAudio, capabilities)) {
     return { mode: "direct" };
   }
   if (!canRemux) {
@@ -114,8 +123,14 @@ export function decidePlayback(summary, capabilities = {}, { allowTranscode = fa
   };
 }
 
-export function buildHlsArgs({ inputUrl, outputDir, start = 0, audioIndex = null, audioCodec = "", decision }) {
+export function buildHlsArgs({ inputUrl, outputDir: rawOutputDir, start = 0, audioIndex = null, audioCodec = "", decision }) {
+  // ffmpeg finds the folder for fMP4's init.mp4 by looking for "/", so on Windows backslash paths
+  // would put that file in the working directory instead.
+  const outputDir = String(rawOutputDir).replaceAll("\\", "/");
   const args = ["-hide_banner", "-loglevel", "error", "-nostdin", "-protocol_whitelist", INPUT_PROTOCOLS, "-rw_timeout", "120000000"];
+  // Copied video can only start on a keyframe, which is usually before the requested time. Keeping
+  // the source's timestamps lets firstSegmentTime find where it really starts, for subtitle timing.
+  if (decision.video === "copy") args.push("-copyts");
   if (start > 0) args.push("-ss", String(start));
   args.push("-i", inputUrl, "-map", "0:v:0");
   args.push("-map", audioIndex != null ? `0:${Number(audioIndex)}` : "0:a:0?");
@@ -133,16 +148,17 @@ export function buildHlsArgs({ inputUrl, outputDir, start = 0, audioIndex = null
   if (audioCodec === "aac") args.push("-c:a", "copy");
   else args.push("-c:a", "aac", "-ac", "2", "-b:a", "160k");
   const extension = decision.segmentType === "fmp4" ? "m4s" : "ts";
+  if (decision.video === "copy") args.push("-muxdelay", "0", "-muxpreload", "0");
+  else args.push("-avoid_negative_ts", "make_zero");
   args.push(
-    "-avoid_negative_ts", "make_zero",
     "-f", "hls",
     "-hls_time", String(HLS_SEGMENT_SECONDS),
     "-hls_list_size", "0",
     "-hls_playlist_type", "event",
     "-hls_flags", "independent_segments",
     "-hls_segment_type", decision.segmentType,
-    "-hls_segment_filename", path.join(outputDir, `seg%05d.${extension}`),
-    path.join(outputDir, "index.m3u8")
+    "-hls_segment_filename", `${outputDir}/seg%05d.${extension}`,
+    `${outputDir}/index.m3u8`
   );
   return args;
 }
@@ -195,6 +211,39 @@ export function runProbe({ ffprobePath, inputUrl, timeoutMs }) {
       } catch {
         reject(Object.assign(new Error("The video's details couldn't be read."), { code: "PROBE_FAILED" }));
       }
+    });
+  });
+}
+
+// Returns the source time of the first video frame in a finished HLS output, in seconds.
+export async function firstSegmentTime({ ffprobePath, outputDir }) {
+  const playlist = await readFile(path.join(outputDir, "index.m3u8"), "utf8");
+  const segment = playlist.split(/\r?\n/).find((line) => line && !line.startsWith("#"));
+  if (!segment) return null;
+  let target = path.join(outputDir, path.basename(segment));
+  if (target.endsWith(".m4s")) {
+    // An fMP4 segment can't be read without its init segment.
+    const joined = path.join(outputDir, "probe.tmp.mp4");
+    const [init, media] = await Promise.all([readFile(path.join(outputDir, "init.mp4")), readFile(target)]);
+    await writeFile(joined, Buffer.concat([init, media]));
+    target = joined;
+  }
+  return new Promise((resolve) => {
+    const child = spawn(ffprobePath, [
+      "-v", "error", "-select_streams", "v:0", "-read_intervals", "%+#1",
+      "-show_entries", "packet=pts_time", "-of", "csv=p=0", target
+    ], { stdio: ["ignore", "pipe", "ignore"] });
+    let stdout = "";
+    const timer = setTimeout(() => child.kill("SIGKILL"), 10000);
+    child.stdout.on("data", (chunk) => { stdout += chunk; });
+    child.on("error", () => {
+      clearTimeout(timer);
+      resolve(null);
+    });
+    child.on("close", () => {
+      clearTimeout(timer);
+      const value = parseFloat(stdout);
+      resolve(Number.isFinite(value) ? value : null);
     });
   });
 }

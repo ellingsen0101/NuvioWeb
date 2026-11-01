@@ -7,7 +7,7 @@ import { Backend, BackendError } from "../services/backend.js";
 import { canResolveDebrid, classifyStream, detectCapabilities, streamInfoHash } from "../services/streams.js";
 import { DirectDebridResolver } from "../../../js/core/debrid/directDebridResolver.js";
 import { clearPendingPlayback, getPendingPlayback, setPendingPlayback } from "../services/playerState.js";
-import { createEngine, describeMediaError } from "./engine.js";
+import { createEngine, describeMediaError, usesNativeHls } from "./engine.js";
 import { cueAt, loadSubtitleCues } from "./subtitles.js";
 
 const CONTROLS_HIDE_MS = 3500;
@@ -59,7 +59,13 @@ export function mountPlayer(node, route) {
   let lastSavedAt = 0;
   let pendingResumeS = resumeMs > 0 ? resumeMs / 1000 : 0;
   let triedBackendFallback = false;
+  let forceRemux = false;
+  let startedAt = Date.now();
+  let startupMs = 0;
+  let sourceInfo = null;
+  let lastError = "";
   let statusTimer = 0;
+  let pictureTimer = 0;
   let wakeLock = null;
   let nativeTrack = null;
 
@@ -104,6 +110,7 @@ export function mountPlayer(node, route) {
     h(
       "div",
       { class: "player-buttons" },
+      iconButton("info", "Playback details", () => openDetails()),
       iconButton("subtitles", "Subtitles", () => openSubtitles()),
       iconButton("graphic_eq", "Audio", () => openAudio()),
       iconButton("speed", "Speed", () => openSpeed()),
@@ -160,6 +167,7 @@ export function mountPlayer(node, route) {
   function showError(message, { retry = true } = {}) {
     if (disposed) return;
     root.classList.remove("is-loading");
+    lastError = message;
     saveProgress(true);
     clear(errorBox).append(
       icon("error"),
@@ -223,6 +231,8 @@ export function mountPlayer(node, route) {
       if (disposed) return;
       audioIndex = nextAudio;
       timeOffset = result.startOffset || 0;
+      // Copied video starts on the keyframe before the target, so this finishes the seek precisely.
+      pendingResumeS = Math.max(0, seconds - timeOffset);
       syncNativeTrack();
       await engine.load({ url: result.url, kind: "hls" });
       video.play().catch(onPlayRejected);
@@ -358,7 +368,10 @@ export function mountPlayer(node, route) {
       syncNativeTrack();
       renderTimeline();
     } catch (error) {
-      if (error?.name !== "AbortError") toast(`Subtitles couldn't load: ${error?.message || "unknown error"}`, { error: true });
+      if (error?.name !== "AbortError") {
+        lastError = `Subtitles: ${error?.message || "unknown error"}`;
+        toast(`Subtitles couldn't load: ${error?.message || "unknown error"}`, { error: true });
+      }
     }
   }
 
@@ -487,6 +500,46 @@ export function mountPlayer(node, route) {
     });
   }
 
+  // iPhones play the audio of a video they can't decode and show a black picture, with no error.
+  function checkForMissingPicture() {
+    clearTimeout(pictureTimer);
+    pictureTimer = setTimeout(() => {
+      if (disposed || video.paused || video.videoWidth > 0) return;
+      if (Backend.isConnected() && !forceRemux && /^https?:/i.test(activeStream.url || "")) {
+        pendingResumeS = position();
+        forceRemux = true;
+        triedBackendFallback = true;
+        const previous = playbackId;
+        playbackId = null;
+        if (previous) Backend.releasePlayback(previous).catch(() => null);
+        video.pause();
+        setBuffering(true, "This device can't show this video's picture. Converting it…");
+        startSource();
+        return;
+      }
+      showError("This device plays the sound of this source but can't show its picture. Try another source.");
+    }, 1500);
+  }
+
+  function openDetails() {
+    const rows = [
+      ["Delivery", isBackendHls ? "Converted by backend (HLS)" : playbackId ? "Through backend, not converted" : "Direct from source"],
+      ["Video size", video.videoWidth ? `${video.videoWidth}×${video.videoHeight}` : "No picture"],
+      ["Codec", sourceInfo ? `${sourceInfo.videoCodec}${sourceInfo.videoTag ? ` (${sourceInfo.videoTag})` : ""}` : "Not checked"],
+      ["Container", sourceInfo?.container || "Not checked"],
+      ["Time to start", startupMs ? `${(startupMs / 1000).toFixed(1)} s` : "Not started"],
+      ["Timeline offset", `${timeOffset.toFixed(1)} s`],
+      ["Subtitles", selectedSubtitle ? `${selectedSubtitle.label}, ${cues.length} lines, ${subtitleDelayS.toFixed(1)} s timing` : "Off"],
+      ["Subtitle tracks found", String(subtitleOptions.length)],
+      ["Last error", lastError || "None"]
+    ];
+    openSheet({
+      title: "Playback details",
+      className: "sheet-player",
+      content: h("dl", { class: "details-list" }, rows.map(([term, value]) => [h("dt", {}, term), h("dd", {}, value)]))
+    });
+  }
+
   function exit() {
     goBack("home");
   }
@@ -499,6 +552,8 @@ export function mountPlayer(node, route) {
 
   function restart() {
     errorBox.hidden = true;
+    startedAt = Date.now();
+    startupMs = 0;
     setPendingPlayback({ ...session, resumeMs: Math.round(position() * 1000) || resumeMs });
     pendingResumeS = position() || pendingResumeS;
     startSource();
@@ -524,9 +579,11 @@ export function mountPlayer(node, route) {
 
   async function startBackendPlayback() {
     const capabilities = detectCapabilities(video);
+    const requestedStart = pendingResumeS || 0;
     const body = {
       capabilities,
-      startAt: pendingResumeS || 0
+      startAt: requestedStart,
+      forceRemux
     };
     const infoHash = streamInfoHash(activeStream);
     const created = infoHash
@@ -552,8 +609,17 @@ export function mountPlayer(node, route) {
     knownDuration = Number(ready.duration || 0);
     isBackendHls = ready.mode === "hls";
     backendAudio = ready.audioTracks || [];
+    sourceInfo = ready.info || null;
     timeOffset = isBackendHls ? Number(ready.startOffset || 0) : 0;
-    if (isBackendHls) pendingResumeS = 0;
+    if (isBackendHls) pendingResumeS = Math.max(0, requestedStart - timeOffset);
+    if (ready.mode === "direct" && ready.sourceUrl) {
+      // Nothing to convert, so the video doesn't need to pass through the backend.
+      const finished = playbackId;
+      playbackId = null;
+      Backend.releasePlayback(finished).catch(() => null);
+      await engine.load({ url: ready.sourceUrl, kind: "direct" });
+      return;
+    }
     await engine.load({ url: ready.url, kind: ready.mode === "hls" ? "hls" : "direct" });
   }
 
@@ -574,7 +640,10 @@ export function mountPlayer(node, route) {
         }
       }
       const sourceKind = classifyStream(activeStream, position);
-      const needsBackend = sourceKind === "torrent" || sourceKind === "server" || triedBackendFallback;
+      // Apple's players show no picture for some MP4s and give no error. A quick check by the backend
+      // avoids a black screen, and playback still goes straight to the source when the file is fine.
+      const checkFirst = usesNativeHls(video) && Backend.isConnected() && (sourceKind === "direct" || sourceKind === "unknown");
+      const needsBackend = sourceKind === "torrent" || sourceKind === "server" || triedBackendFallback || checkFirst;
       if (needsBackend) {
         if (!Backend.isConnected()) {
           showError("This source needs your streaming backend. Connect it in Settings, then try again.", { retry: false });
@@ -637,7 +706,7 @@ export function mountPlayer(node, route) {
   // Events
   const listeners = [
     ["loadedmetadata", () => {
-      if (pendingResumeS > 0) {
+      if (pendingResumeS > 0.5) {
         const target = pendingResumeS;
         pendingResumeS = 0;
         video.currentTime = target;
@@ -659,6 +728,8 @@ export function mountPlayer(node, route) {
       saveProgress(true);
     }],
     ["playing", () => {
+      if (!startupMs) startupMs = Date.now() - startedAt;
+      checkForMissingPicture();
       setBuffering(false);
       root.classList.remove("needs-tap");
       playIcon.textContent = "pause";
@@ -777,6 +848,7 @@ export function mountPlayer(node, route) {
     controller.abort();
     clearTimeout(hideTimer);
     clearTimeout(statusTimer);
+    clearTimeout(pictureTimer);
     listeners.forEach(([type, handler]) => video.removeEventListener(type, handler));
     document.removeEventListener("keydown", onKey);
     window.removeEventListener("pagehide", onPageHide);

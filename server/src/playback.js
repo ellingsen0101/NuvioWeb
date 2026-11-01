@@ -3,7 +3,7 @@
 import { randomUUID } from "node:crypto";
 import { rm } from "node:fs/promises";
 import path from "node:path";
-import { HlsJob, buildHlsArgs, decidePlayback, directorySize, mimeForName, runProbe, selectFileIndex, summarizeProbe } from "./media.js";
+import { HlsJob, buildHlsArgs, decidePlayback, directorySize, firstSegmentTime, mimeForName, runProbe, selectFileIndex, summarizeProbe } from "./media.js";
 import { isValidInfoHash } from "./torrentEngine.js";
 import { UpstreamError, parsePublicUrl, safeGet } from "./netGuard.js";
 
@@ -50,11 +50,19 @@ export function createPlaybackManager({ config, engine, tokens, tools, logger = 
     return session;
   }
 
+  // Timing only. Source URLs and tokens never reach the log.
+  function logPhase(session, phase) {
+    logger.info?.(`Playback ${session.id.slice(0, 8)} +${((Date.now() - session.createdAt) / 1000).toFixed(1)}s ${phase}`);
+  }
+
   function fail(session, error) {
     session.state = "error";
     session.code = error.code || "PLAYBACK_FAILED";
-    session.message = error.message || "This stream couldn't be started.";
-    logger.warn?.(`Playback ${session.id.slice(0, 8)} failed: ${session.code}`);
+    // A failed probe usually means the source itself refused or timed out, which is the useful part.
+    session.message = session.upstreamError && error.code === "PROBE_FAILED"
+      ? `The source didn't provide this video (${session.upstreamError}). Try another source.`
+      : error.message || "This stream couldn't be started.";
+    logPhase(session, `failed: ${session.code}${session.upstreamError ? ` (${session.upstreamError})` : ""}`);
   }
 
   function mediaUrl(session, suffix, base = publicBase()) {
@@ -101,9 +109,14 @@ export function createPlaybackManager({ config, engine, tokens, tools, logger = 
     session.startOffset = startAt;
     await job.waitForFirstSegment();
     if (session.hlsGeneration !== generation) throw new ApiError(409, "SUPERSEDED", "A newer seek replaced this one.");
+    if (session.decision.video === "copy") {
+      const firstFrame = await firstSegmentTime({ ffprobePath: config.ffprobePath, outputDir });
+      if (firstFrame != null) session.startOffset = Math.max(0, firstFrame - (session.summary.startTime || 0));
+      logPhase(session, `first segment ready, requested ${startAt.toFixed(1)}s, starts at ${session.startOffset.toFixed(1)}s`);
+    }
     return {
       url: mediaUrl(session, `hls/${generation}/index.m3u8`),
-      startOffset: startAt
+      startOffset: session.startOffset
     };
   }
 
@@ -162,8 +175,11 @@ export function createPlaybackManager({ config, engine, tokens, tools, logger = 
     session.duration = session.summary.duration;
     session.decision = decidePlayback(session.summary, session.capabilities, {
       allowTranscode: config.allowTranscode,
-      canRemux: tools.ffmpeg
+      canRemux: tools.ffmpeg,
+      forceRemux: session.forceRemux
     });
+    const { container, videoCodec, videoTag, pixFmt, width, height } = session.summary;
+    logPhase(session, `probed: ${container} ${videoCodec}/${videoTag} ${pixFmt} ${width}x${height} audio=${session.summary.audioTracks[0]?.codec || "none"} -> ${session.decision.mode}`);
     if (session.decision.mode === "unsupported") {
       throw Object.assign(new Error(session.decision.message), { code: session.decision.code });
     }
@@ -182,6 +198,7 @@ export function createPlaybackManager({ config, engine, tokens, tools, logger = 
       state: "created",
       capabilities: body.capabilities && typeof body.capabilities === "object" ? body.capabilities : {},
       startAt: Math.max(0, Number(body.startAt) || 0),
+      forceRemux: body.forceRemux === true,
       createdAt: now,
       lastActivityAt: now,
       hlsGeneration: 0,
@@ -274,8 +291,13 @@ export function createPlaybackManager({ config, engine, tokens, tools, logger = 
         mode: session.mode,
         duration: session.duration || 0,
         startOffset: session.mode === "hls" ? session.startOffset : 0,
+        info: session.summary
+          ? { container: session.summary.container, videoCodec: session.summary.videoCodec, videoTag: session.summary.videoTag, width: session.summary.width, height: session.summary.height }
+          : null,
         audioTracks: session.summary?.audioTracks?.map(({ index, label, detail, language }) => ({ index, label, detail, language })) || [],
-        url: session.mode === "hls" ? session.hls.url : mediaUrl(session, "file")
+        url: session.mode === "hls" ? session.hls.url : mediaUrl(session, "file"),
+        // The client already holds this source's link. The resolved form skips the slow redirect.
+        ...(session.kind === "url" && session.mode === "direct" ? { sourceUrl: session.resolvedUrl || session.url } : {})
       };
     },
 
@@ -296,16 +318,32 @@ export function createPlaybackManager({ config, engine, tokens, tools, logger = 
       touch(session);
       const rangeHeader = request.headers.range;
       if (session.kind === "url") {
-        const upstream = await safeGet(session.url, {
-          headers: { ...session.headers, ...(rangeHeader ? { range: rangeHeader } : {}) },
-          allowPrivate: config.allowPrivateUpstreams,
-          timeoutMs: config.proxyTimeoutMs
-        });
+        const headers_ = { ...session.headers, ...(rangeHeader ? { range: rangeHeader } : {}) };
+        const open = (target) =>
+          safeGet(target, { headers: headers_, allowPrivate: config.allowPrivateUpstreams, timeoutMs: config.sourceTimeoutMs });
+        // Addon links often redirect through a slow resolver to a CDN. Each read goes straight to the
+        // CDN after the first, because ffprobe and ffmpeg make many range requests per file.
+        let upstream;
+        try {
+          upstream = await open(session.resolvedUrl || session.url);
+          if (session.resolvedUrl && (upstream.statusCode || 500) >= 400) {
+            upstream.resume();
+            session.resolvedUrl = null;
+            upstream = await open(session.url);
+          }
+        } catch (error) {
+          session.upstreamError = error.code === "UPSTREAM_TIMEOUT" ? "it timed out" : "it couldn't be reached";
+          throw error;
+        }
         const status = upstream.statusCode || 502;
         if (status >= 400) {
           upstream.resume();
+          session.upstreamError = `it answered ${status}`;
           throw new UpstreamError(`The source answered ${status}`, "UPSTREAM_STATUS");
         }
+        if (!session.resolvedUrl) logPhase(session, "source link resolved");
+        session.upstreamError = null;
+        session.resolvedUrl = upstream.finalUrl;
         const headers = {};
         for (const name of ["content-type", "content-length", "content-range", "accept-ranges"]) {
           if (upstream.headers[name]) headers[name] = upstream.headers[name];

@@ -68,6 +68,8 @@ export function loadConfig(env = process.env) {
     probeTimeoutMs: integer(env, "PROBE_TIMEOUT_SECONDS", 180) * 1000,
     sweepIntervalMs: integer(env, "SWEEP_INTERVAL_SECONDS", 30) * 1000,
     proxyTimeoutMs: integer(env, "PROXY_TIMEOUT_SECONDS", 15) * 1000,
+    // Addons that hand out debrid links can take a long time on the first request.
+    sourceTimeoutMs: integer(env, "SOURCE_TIMEOUT_SECONDS", 60) * 1000,
     proxyMaxBytes: integer(env, "PROXY_MAX_MB", 8) * 1024 * 1024
   };
 }

@@ -11,7 +11,7 @@ try {
 }
 config.publicBaseUrl = process.env.PUBLIC_BASE_URL ? process.env.PUBLIC_BASE_URL.replace(/\/+$/, "") : null;
 
-const app = await createApp(config);
+const app = await createApp(config, { logger: { info: console.log, warn: console.warn, error: console.error } });
 const port = await app.listen();
 console.log(`Nuvio Web backend listening on ${config.host}:${port}`);
 
