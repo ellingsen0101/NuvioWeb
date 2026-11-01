@@ -1,0 +1,1 @@
+{"name":"nuvio-web-backend","private":true,"version":"0.1.0","type":"module","license":"GPL-3.0-only","engines":{"node":">=20"},"scripts":{"start":"node src/index.js","dev":"node scripts/dev.mjs","test":"node --test --test-timeout=240000 test/unit.test.js test/api.test.js"},"dependencies":{"webtorrent":"^3.0.21"}}
