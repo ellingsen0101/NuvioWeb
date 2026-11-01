@@ -685,7 +685,7 @@ export function mountPlayer(node, route) {
         startSource();
         return;
       }
-      showError(describeMediaError(video));
+      showError(describeMediaError(video, { backendConnected: Backend.isConnected(), viaBackend: Boolean(playbackId) }));
     }],
     ["webkitbeginfullscreen", () => { if (nativeTrack) nativeTrack.mode = "showing"; }],
     ["webkitendfullscreen", () => { if (nativeTrack) nativeTrack.mode = "hidden"; }]

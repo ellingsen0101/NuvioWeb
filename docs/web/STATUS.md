@@ -37,7 +37,7 @@ Screen behaviour.
 | Watched marks on episodes | Stand-in | Sync push checked |
 | MP4 playback, seeking | Tested in Edge | |
 | HLS through hls.js | Tested in Edge | |
-| HLS through native Safari | Not verified | |
+| HLS through native Safari | Not verified | Only Apple devices use native HLS. Edge reports native support, but its parser rejected a real stream, so it uses hls.js. |
 | MKV remux to HLS, seeking past converted part | Tested in Edge | |
 | Audio track listing | Tested for remuxed streams | Switching tracks is not verified |
 | Subtitles from addons, timing control | Tested | Live OpenSubtitles addon not exercised |
@@ -50,6 +50,22 @@ Screen behaviour.
 | Phone and desktop layouts | Tested | No sideways scrolling on main screens |
 | Accent themes | Tested | Upstream's theme system |
 
+### Real sources from a real account
+
+Tested in Edge on Windows, with the backend on the same PC, torrents off, and account writes blocked for the test.
+One movie through AIOStreams returned 279 sources: 40 play directly, and the rest need the backend.
+
+| Check | Result |
+| --- | --- |
+| Direct debrid link (720p), resuming from the synced position | **Played** |
+| 67.9 GB 1080p source with TrueHD 7.1 audio, converted by the backend | **Played.** Started in about 15 seconds |
+| Seek past the converted part, on that source | **Worked.** About 11 seconds |
+| Audio track switch, on that source | **Worked.** About 7 seconds, and it kept its position |
+| Subtitles from the OpenSubtitles addon | **Displayed.** Timing wasn't checked against the audio |
+| Same tests on an iPhone, or over the internet | **Not verified.** Everything ran on one PC, so network speed wasn't a factor |
+
+High-bitrate sources need real bandwidth from backend to phone: one 4-second segment of that source was about 18 MB, or roughly 36 Mbit/s.
+
 ### Torrent streaming
 
 | Check | Result |
@@ -57,7 +73,6 @@ Screen behaviour.
 | Local swarm: correct bytes at any offset, compared by hash | Tested |
 | Local swarm through the browser UI: MP4 direct, MKV remuxed | Tested in Edge |
 | Real public swarm: *Sintel* (CC BY 3.0), production security settings | **Passed.** Ready in 2 to 4 seconds with 9 peers, seek read returned correct size, ffprobe saw H.264 and AAC. Run with `server/scripts/verify-public-torrent.mjs`. |
-| Real account's stream addons (AIOStreams), listing only | **Tested.** One movie returned 279 sources: 40 play directly, and 239 need the backend. Nothing was played. |  |
 | Real addon such as Torrentio | **Not tested.** The stream format it uses is implemented (`infoHash`, `fileIdx`, `sources`), but it was deliberately not run, since its results are mostly copyrighted releases. |
 | Long playback, poorly seeded swarms | Not verified |
 

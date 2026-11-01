@@ -278,9 +278,10 @@ test.describe("playback", () => {
     await expect.poll(() => page.locator(".player-video").evaluate((video) => video.currentTime), { timeout: 20000 }).toBeGreaterThan(35);
   });
 
-  test("HLS plays through hls.js where the browser has no native support", async ({ page }) => {
+  test("HLS plays through hls.js outside Apple devices, even where the browser claims native HLS", async ({ page }) => {
     await openStream(page, "e2e-movie-1");
     await expectPlaying(page);
+    expect(await page.locator(".player-video").evaluate((video) => video.currentSrc)).toMatch(/^blob:/);
   });
 
   test("subtitles load, display and shift with the timing control", async ({ page }) => {

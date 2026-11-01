@@ -1,14 +1,25 @@
-// Loads a source into the <video> element. Safari plays HLS natively (and iPhone Safari has no
-// standard MSE), so native HLS comes first there and hls.js is used everywhere else.
-export function describeMediaError(video, fallback = "") {
+// Loads a source into the <video> element. Apple devices play HLS natively (and iPhone Safari has no
+// standard MSE). Everything else uses hls.js: recent Chromium browsers also report native HLS through
+// canPlayType, but their parser rejects streams that hls.js plays fine.
+export function usesNativeHls(video, userAgent = navigator.userAgent) {
+  if (!video.canPlayType("application/vnd.apple.mpegurl")) return false;
+  const isIos = /iPad|iPhone|iPod/.test(userAgent) || (/Macintosh/.test(userAgent) && navigator.maxTouchPoints > 1);
+  const isDesktopSafari = /Safari\//.test(userAgent) && !/Chrome|Chromium|Edg|OPR|Android/.test(userAgent);
+  return isIos || isDesktopSafari;
+}
+
+export function describeMediaError(video, { backendConnected = false, viaBackend = false } = {}) {
   const code = video?.error?.code;
   if (code === 4) {
-    return "This browser can't play this video format. Try another source, or connect your streaming backend so it can be converted.";
+    if (viaBackend) return "This device couldn't play the converted video. Try another source.";
+    return backendConnected
+      ? "This browser can't play this video format. Try another source."
+      : "This browser can't play this video format. Try another source, or connect your streaming backend so it can be converted.";
   }
   if (code === 3) return "The video data couldn't be decoded. It may use a codec this device doesn't support.";
   if (code === 2) return "The video stopped loading because of a network problem.";
   if (code === 1) return "Playback was interrupted.";
-  return fallback || "This video couldn't be played.";
+  return "This video couldn't be played.";
 }
 
 export function createEngine(video, { onFatal, onTracks }) {
@@ -28,14 +39,18 @@ export function createEngine(video, { onFatal, onTracks }) {
       video.load();
       return;
     }
-    const nativeHls = Boolean(video.canPlayType("application/vnd.apple.mpegurl"));
-    if (nativeHls) {
+    if (usesNativeHls(video)) {
       video.src = url;
       video.load();
       return;
     }
     const { default: Hls } = await import("./hls-engine.js");
-    if (!Hls.isSupported()) throw new Error("This browser can't play HLS streams.");
+    if (!Hls.isSupported()) {
+      if (!video.canPlayType("application/vnd.apple.mpegurl")) throw new Error("This browser can't play HLS streams.");
+      video.src = url;
+      video.load();
+      return;
+    }
     hls = new Hls({
       enableWorker: true,
       startPosition: 0,
