@@ -1,5 +1,6 @@
 import { subtitleRepository } from "../../../js/data/repository/subtitleRepository.js";
 import { getPreferredSubtitleLanguage, matchesLanguage, pickEnglishAudio, sortSubtitlesByLanguage } from "../services/language.js";
+import { rankSubtitles, subtitleFitsVideo } from "../services/subtitleRanking.js";
 import { watchProgressRepository } from "../../../js/data/repository/watchProgressRepository.js";
 import { button, clear, formatDuration, h, icon, iconButton, openSheet, toast } from "../lib/dom.js";
 import { goBack, navigate } from "../lib/router.js";
@@ -14,6 +15,7 @@ const CONTROLS_HIDE_MS = 3500;
 const PROGRESS_SAVE_MS = 15000;
 const STATUS_POLL_MS = 500;
 const SEEK_STEP_S = 10;
+const AUTO_SUBTITLE_ATTEMPTS = 4;
 const SPEEDS = [0.5, 0.75, 1, 1.25, 1.5, 2];
 
 function languageName(code) {
@@ -64,6 +66,7 @@ export function mountPlayer(node, route) {
   let startupMs = 0;
   let sourceInfo = null;
   let lastError = "";
+  let subtitleChosenByHand = false;
   let statusTimer = 0;
   let pictureTimer = 0;
   let wakeLock = null;
@@ -352,7 +355,49 @@ export function mountPlayer(node, route) {
     });
   }
 
+  function applySubtitle(option, loaded) {
+    cues = loaded;
+    selectedSubtitle = option;
+    subtitleLayer.dataset.text = "";
+    syncNativeTrack();
+    renderTimeline();
+  }
+
+  // The length check needs the video's duration, which arrives after the source has started.
+  async function waitForDuration(timeoutMs = 45000) {
+    const deadline = Date.now() + timeoutMs;
+    while (!disposed && !duration() && Date.now() < deadline) {
+      await new Promise((resolve) => setTimeout(resolve, 500));
+    }
+    return duration();
+  }
+
+  // Tries the best-ranked tracks in turn, skipping any that fail to load or are clearly for another
+  // cut. A choice made by hand in the player is never second-guessed.
+  async function autoSelectSubtitle(candidates) {
+    let fallback = null;
+    for (const option of candidates.slice(0, AUTO_SUBTITLE_ATTEMPTS)) {
+      if (disposed || subtitleChosenByHand) return;
+      let loaded;
+      try {
+        loaded = await loadSubtitleCues(option.url, { signal: controller.signal });
+      } catch (error) {
+        if (error?.name === "AbortError") return;
+        continue;
+      }
+      if (disposed || subtitleChosenByHand) return;
+      fallback ||= { option, loaded };
+      if (!selectedSubtitle) applySubtitle(option, loaded);
+      if (subtitleFitsVideo(loaded, await waitForDuration())) {
+        if (!disposed && !subtitleChosenByHand) applySubtitle(option, loaded);
+        return;
+      }
+    }
+    if (fallback && !disposed && !subtitleChosenByHand) applySubtitle(fallback.option, fallback.loaded);
+  }
+
   async function selectSubtitle(option) {
+    subtitleChosenByHand = true;
     if (!option?.url) {
       selectedSubtitle = null;
       cues = [];
@@ -362,11 +407,7 @@ export function mountPlayer(node, route) {
     }
     try {
       statusText.textContent = "Loading subtitles…";
-      cues = await loadSubtitleCues(option.url, { signal: controller.signal });
-      selectedSubtitle = option;
-      subtitleLayer.dataset.text = "";
-      syncNativeTrack();
-      renderTimeline();
+      applySubtitle(option, await loadSubtitleCues(option.url, { signal: controller.signal }));
     } catch (error) {
       if (error?.name !== "AbortError") {
         lastError = `Subtitles: ${error?.message || "unknown error"}`;
@@ -530,6 +571,9 @@ export function mountPlayer(node, route) {
       ["Time to start", startupMs ? `${(startupMs / 1000).toFixed(1)} s` : "Not started"],
       ["Timeline offset", `${timeOffset.toFixed(1)} s`],
       ["Subtitles", selectedSubtitle ? `${selectedSubtitle.label}, ${cues.length} lines, ${subtitleDelayS.toFixed(1)} s timing` : "Off"],
+      ["Subtitle release", selectedSubtitle?.title || selectedSubtitle?.detail || "Unknown"],
+      ["Exact file match", selectedSubtitle ? (selectedSubtitle.moviehash && stream.behaviorHints?.videoHash && String(selectedSubtitle.moviehash).toLowerCase() === String(stream.behaviorHints.videoHash).toLowerCase() ? "Yes" : "No") : "Not applicable"],
+      ["Last subtitle line", cues.length ? `${formatDuration(cues[cues.length - 1].end * 1000)} of ${formatDuration(duration() * 1000)}` : "None"],
       ["Subtitle tracks found", String(subtitleOptions.length)],
       ["Last error", lastError || "None"]
     ];
@@ -694,15 +738,20 @@ export function mountPlayer(node, route) {
       ...results.map((entry) => ({
         url: entry.url,
         label: languageName(entry.lang),
-        detail: entry.addonName || "",
-        lang: entry.lang
+        detail: entry.title || entry.addonName || "",
+        lang: entry.lang,
+        title: entry.title,
+        moviehash: entry.moviehash,
+        fromTrusted: entry.fromTrusted,
+        aiTranslated: entry.aiTranslated
       }))
     ];
     const preferred = getPreferredSubtitleLanguage();
-    subtitleOptions = sortSubtitlesByLanguage(subtitleOptions, preferred === "off" ? "en" : preferred);
-    if (preferred !== "off") {
-      const match = subtitleOptions.find((option) => matchesLanguage(option, preferred));
-      if (match) selectSubtitle(match);
+    const language = preferred === "off" ? "en" : preferred;
+    const file = { filename: stream.behaviorHints?.filename, videoHash: stream.behaviorHints?.videoHash };
+    subtitleOptions = sortSubtitlesByLanguage(rankSubtitles(subtitleOptions, file), language);
+    if (preferred !== "off" && !subtitleChosenByHand) {
+      autoSelectSubtitle(subtitleOptions.filter((option) => matchesLanguage(option, language)));
     }
   }
 

@@ -166,6 +166,10 @@ class SubtitleRepository {
             url: subtitle.url,
             lang: subtitle.lang || "unknown",
             ...(headers ? { headers } : {}),
+            title: subtitle.title || null,
+            moviehash: subtitle.moviehash || null,
+            fromTrusted: subtitle.from_trusted === true || subtitle.from_trusted === 1,
+            aiTranslated: subtitle.ai_translated === true || subtitle.ai_translated === 1,
             addonName: addon.displayName,
             addonLogo: addon.logo
           };

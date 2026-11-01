@@ -31,7 +31,8 @@
     "web:dev": "node ./scripts/web-dev.mjs",
     "test:web": "playwright test",
     "test:server": "npm --prefix server test",
-    "web:serve": "node ./scripts/web-serve.mjs"
+    "web:serve": "node ./scripts/web-serve.mjs",
+    "test:web-unit": "node --test web/test/subtitleRanking.test.mjs"
   },
   "devDependencies": {
     "@csstools/postcss-global-data": "^4.0.0",

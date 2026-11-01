@@ -103,7 +103,7 @@ function createFixtureServer({ torrentHashes }) {
   };
   const tracker = `tracker:http://localhost:${PORTS.tracker}/announce`;
   const streamsFor = (id) => {
-    if (id === "e2e-movie-0" || id.startsWith("e2e-series-1:")) return [{ name: "E2E\nDirect", title: "direct.mp4", url: `${FIXTURE}/media/direct.mp4` }];
+    if (id === "e2e-movie-0" || id.startsWith("e2e-series-1:")) return [{ name: "E2E\nDirect", title: "direct.mp4", url: `${FIXTURE}/media/direct.mp4`, behaviorHints: { filename: "Direct.1080p.WEB-DL-E2E.mp4" } }];
     if (id === "e2e-movie-1") return [{ name: "E2E\nHLS", title: "index.m3u8", url: `${FIXTURE}/media/hls/index.m3u8` }];
     if (id === "e2e-movie-2") return [{ name: "E2E\nMKV", title: "remux.mkv", url: `${FIXTURE}/media/remux.mkv` }];
     if (id === "e2e-movie-5") return [{ name: "E2E\nMKV", title: "longgop.mkv", url: `${FIXTURE}/media/longgop.mkv` }];
@@ -244,11 +244,17 @@ function createFixtureServer({ torrentHashes }) {
       const streamMatch = /^\/addon\/stream\/(?:movie|series)\/(.+)\.json$/.exec(pathname);
       if (streamMatch) return sendJson(response, 200, { streams: streamsFor(decodeURIComponent(streamMatch[1])) });
       if (pathname.startsWith("/addon/subtitles/")) {
-        return sendJson(response, 200, { subtitles: [{ id: "e2e-en", url: `${FIXTURE}/subs/english.srt`, lang: "eng" }] });
+        // The first track is for another release, as real addons often list. The player has to skip it.
+        return sendJson(response, 200, {
+          subtitles: [
+            { id: "e2e-wrong", url: `${FIXTURE}/subs/wrong-release.srt`, lang: "eng", title: "Other.Movie.Theatrical.720p.HDTV-NOPE" },
+            { id: "e2e-en", url: `${FIXTURE}/subs/english.srt`, lang: "eng", title: "Direct.1080p.WEB-DL-E2E" }
+          ]
+        });
       }
       if (pathname.endsWith(".srt")) {
         response.writeHead(200, { "Content-Type": "text/plain; charset=utf-8" });
-        response.end(SUBTITLE);
+        response.end(pathname.includes("wrong") ? SUBTITLE.replaceAll("subtitle line", "wrong release line") : SUBTITLE);
         return;
       }
       if (pathname.startsWith("/art/")) {

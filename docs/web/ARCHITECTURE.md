@@ -38,7 +38,8 @@ injects them at release time from a CI secret (`NUVIO_LOCAL_PROPERTIES`).
 **Upstream code is imported, not copied.** `js/`, `css/`, `res/`, `services/` and the TV build stay as
 they were, so `git merge upstream/main` keeps working. New code is in `web/`, `server/`,
 `scripts/web-*.mjs` and `docs/web/`. The only upstream files changed are `package.json` (scripts and
-test dependencies), `.gitignore` and `README.md`.
+test dependencies), `.gitignore`, `README.md`, and `subtitleRepository.js`, which now keeps the release
+name and file hash that addons send, for choosing the best subtitle.
 
 **The UI is new, because the TV UI can't be adapted.** Its layout assumes a fixed canvas and its
 interaction assumes focus and a remote. The new screens reuse its colour tokens, theme system, logos,

@@ -30,6 +30,7 @@ jobs:
         with:
           node-version: 22
       - run: npm ci --ignore-scripts
+      - run: npm run test:web-unit
       - run: npm run web:build
       - name: Check that no secret-shaped values reach the build
         run: |
