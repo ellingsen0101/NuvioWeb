@@ -11,7 +11,9 @@ function avatar(profile) {
   return h(
     "span",
     { class: "profile-avatar", style: { background: profile.avatarColorHex || "#1E88E5" } },
-    profile.avatarUrl ? image(profile.avatarUrl, { alt: "" }) : initial
+    // The initial stays underneath, so a slow or failed avatar image still identifies the profile.
+    initial,
+    profile.avatarUrl ? image(profile.avatarUrl, { alt: "" }) : null
   );
 }
 

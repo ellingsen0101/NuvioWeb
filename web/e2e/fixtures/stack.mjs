@@ -305,6 +305,9 @@ async function main() {
   Object.assign(process.env, {
     NUVIO_SUPABASE_URL: FIXTURE,
     NUVIO_SUPABASE_ANON_KEY: "e2e-anon-key",
+    // Set explicitly so that a developer's local.properties can never point tests at a real server.
+    NUVIO_SUPABASE_FALLBACK_URL: "",
+    AVATAR_PUBLIC_BASE_URL: "",
     TV_LOGIN_WEB_BASE_URL: `${FIXTURE}/tv-login`,
     DEVICE_LOGIN_WEB_BASE_URL: `${FIXTURE}/link`,
     NUVIO_BACKEND_URL: `http://localhost:${PORTS.backend}`

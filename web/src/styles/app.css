@@ -292,7 +292,9 @@ input:focus-visible, select:focus-visible { outline: 2px solid var(--focus-color
   overflow: hidden;
   transition: transform 0.15s var(--ease), box-shadow 0.15s;
 }
-.profile-avatar img { width: 100%; height: 100%; object-fit: cover; }
+.profile-avatar { position: relative; }
+.profile-avatar img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+.profile-avatar img.is-broken { display: none; }
 .profile-tile:active .profile-avatar { transform: scale(0.95); }
 .profile-tile:hover .profile-avatar { box-shadow: 0 0 0 3px var(--focus-color); }
 .profile-add { background: var(--bg-elevated); color: var(--text-secondary); }
@@ -305,7 +307,8 @@ input:focus-visible, select:focus-visible { outline: 2px solid var(--focus-color
 
 /* Home */
 .hero { position: relative; min-height: 0; overflow: hidden; }
-.hero:not(:empty) { height: min(68vh, 560px); margin-bottom: 8px; }
+.hero { height: min(68vh, 560px); margin-bottom: 8px; background: var(--bg-elevated); }
+.hero:not(:empty) { background: none; }
 .hero-backdrop, .hero-backdrop img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; object-position: center 20%; }
 .hero-backdrop img { opacity: 0; transition: opacity 0.6s; }
 .hero-backdrop img.is-loaded { opacity: 1; }
@@ -658,7 +661,7 @@ html.player-active, html.player-active body { background: #000; overflow: hidden
 
 /* Landscape phones */
 @media (orientation: landscape) and (max-height: 500px) {
-  .hero:not(:empty) { height: 88vh; }
+  .hero { height: 88vh; }
   .hero-content { align-items: flex-start; text-align: left; left: var(--safe-left); }
   .detail-backdrop { height: 62vh; }
   .sheet { max-height: 94dvh; max-width: 560px; }
@@ -703,7 +706,7 @@ html.player-active, html.player-active body { background: #000; overflow: hidden
   .outlet { padding: 0 0 40px var(--rail-width); }
   .no-chrome .outlet { padding: 0; }
   .toast { bottom: 28px; }
-  .hero:not(:empty) { height: min(72vh, 680px); }
+  .hero { height: min(72vh, 680px); }
   .hero-content { bottom: 56px; }
   .hero-title { font-size: 46px; }
   .hero-logo { max-height: 140px; max-width: 460px; }

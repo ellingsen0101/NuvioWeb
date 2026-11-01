@@ -14,7 +14,6 @@ Screen behaviour.
 
 | Item | What's missing |
 | --- | --- |
-| **Real Nuvio account sign-in** | Starting sign-in and polling work against the official server from a browser origin (`http://localhost:5173`). Approving a code, the token exchange, and syncing a real account are **not verified yet**: they need the account owner to approve a code. The server values are in git-ignored `local.properties`, taken from the official 1.3.0 release. |
 | **Real iPhone testing** | Needs an HTTPS deployment and your phone. |
 | **Production deployment** | Needs a static host, plus a VPS or home server for the backend. |
 
@@ -22,7 +21,10 @@ Screen behaviour.
 
 | Feature | Status | Evidence |
 | --- | --- | --- |
-| Device-code sign-in, QR, session refresh, expiry, sign-out | Stand-in | Mock server, using upstream's unchanged `QrLoginService` and `AuthManager` |
+| Device-code sign-in against the official server | **Tested with a real account** | Start, poll, approval and token exchange all worked, from `http://localhost:5173` only. A deployed domain hasn't been tried. |
+| Reading a real account: profiles, addons, library, progress, settings | **Tested with a real account** | 2 profiles, 5 addons, Continue Watching and the resume position loaded |
+| Writing to a real account | Not verified | Only tested on the mock. The real-account check blocked writes on purpose, and none were attempted. |
+| Session refresh, expiry, sign-out | Stand-in | Mock server, using upstream's unchanged `AuthManager` |
 | Profiles: list, choose, add | Stand-in | Sync push checked |
 | Profiles: edit, delete, PIN | Not verified | Written, with no test yet |
 | Addon sync from account | Stand-in | Unavailable addons are handled |
@@ -55,6 +57,7 @@ Screen behaviour.
 | Local swarm: correct bytes at any offset, compared by hash | Tested |
 | Local swarm through the browser UI: MP4 direct, MKV remuxed | Tested in Edge |
 | Real public swarm: *Sintel* (CC BY 3.0), production security settings | **Passed.** Ready in 2 to 4 seconds with 9 peers, seek read returned correct size, ffprobe saw H.264 and AAC. Run with `server/scripts/verify-public-torrent.mjs`. |
+| Real account's stream addons (AIOStreams), listing only | **Tested.** One movie returned 279 sources: 40 play directly, and 239 need the backend. Nothing was played. |  |
 | Real addon such as Torrentio | **Not tested.** The stream format it uses is implemented (`infoHash`, `fileIdx`, `sources`), but it was deliberately not run, since its results are mostly copyrighted releases. |
 | Long playback, poorly seeded swarms | Not verified |
 

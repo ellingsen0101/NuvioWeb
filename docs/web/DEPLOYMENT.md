@@ -50,10 +50,12 @@ The login screen then offers a self-hosted server or guest mode. You need one of
    be something the project wants, so that's your decision.
 3. Your own compatible server (`Use a self-hosted server` on the login screen).
 
-Sign-in also needs the account server to accept requests from your frontend's origin. Supabase's REST and
-auth APIs normally allow this, but the `tv-logins-exchange` edge function sets its own CORS rules. This
-**hasn't been verified** against the official server. If it refuses browser origins, that's a blocker
-that only Nuvio Media can change.
+Sign-in also needs the account server to accept requests from your frontend's origin. This has been
+verified against the official server from `http://localhost:5173`, including the `tv-logins-exchange`
+function, but **not from a deployed domain**. If it ever refuses browser origins, that's a blocker that
+only Nuvio Media can change.
+
+For local work, put these values in `local.properties`, which git ignores. Never commit them.
 
 ## 2. Backend
 

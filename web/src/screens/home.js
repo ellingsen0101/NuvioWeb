@@ -1,4 +1,4 @@
-import { buildOrderedHomeCatalogItems, catalogSkipStep } from "../../../js/core/addons/homeCatalogs.js";
+import { buildOrderedHomeCatalogItems, catalogSkipStep, toDisplayTypeLabel } from "../../../js/core/addons/homeCatalogs.js";
 import { StartupSyncService } from "../../../js/core/profile/startupSyncService.js";
 import { HomeCatalogStore } from "../../../js/data/local/homeCatalogStore.js";
 import { addonRepository } from "../../../js/data/repository/addonRepository.js";
@@ -150,6 +150,8 @@ async function renderContinueWatching(slot) {
 function renderCatalogRow(slot, entry, { signal, onLoaded }) {
   const seeAllHref = hrefFor("catalog", [entry.addonId, entry.type, entry.catalogId], { base: entry.addonBaseUrl, name: entry.catalogName });
   const title = `${entry.catalogName}`;
+  // Addons often offer the same catalog name for movies and series, so the type tells them apart.
+  const subtitle = [entry.addonName, toDisplayTypeLabel(entry.type)].filter(Boolean).join(" · ");
   const load = async () => {
     const result = await catalogRepository.getCatalog({
       addonBaseUrl: entry.addonBaseUrl,
@@ -171,14 +173,14 @@ function renderCatalogRow(slot, entry, { signal, onLoaded }) {
     clear(slot).append(
       row({
         title,
-        subtitle: entry.addonName,
+        subtitle,
         seeAllHref,
         items: result.data.items.slice(0, 24).map(posterCard)
       })
     );
     onLoaded?.(result.data.items);
   };
-  clear(slot).append(row({ title, subtitle: entry.addonName, items: skeletonRow() }));
+  clear(slot).append(row({ title, subtitle, items: skeletonRow() }));
   return load;
 }
 
@@ -224,6 +226,7 @@ export function mountHome(node) {
       store.customTitles || {}
     ).filter((entry) => !entry.isDisabled && !entry.isCollection && entry.catalogId);
 
+    heroSlot.hidden = !entries.length;
     if (!entries.length) {
       rows.append(
         emptyState({
