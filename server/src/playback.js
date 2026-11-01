@@ -7,6 +7,8 @@ import { HlsJob, buildHlsArgs, decidePlayback, directorySize, mimeForName, runPr
 import { isValidInfoHash } from "./torrentEngine.js";
 import { UpstreamError, parsePublicUrl, safeGet } from "./netGuard.js";
 
+const ABANDONED_AFTER_MS = 30000;
+
 export class ApiError extends Error {
   constructor(status, code, message) {
     super(message);
@@ -27,7 +29,15 @@ export function createPlaybackManager({ config, engine, tokens, tools, logger = 
     session.lastActivityAt = Date.now();
   }
 
-  function assertCapacity() {
+  // Phones close apps without saying goodbye, so an abandoned session shouldn't lock anyone out
+  // until the idle timeout. When full, the longest-quiet session that isn't sending data makes way.
+  async function ensureCapacity() {
+    if (sessions.size < config.maxSessions) return;
+    const now = Date.now();
+    const candidates = [...sessions.values()]
+      .filter((session) => !session.activeStreams.size && now - session.lastActivityAt > ABANDONED_AFTER_MS)
+      .sort((a, b) => a.lastActivityAt - b.lastActivityAt);
+    if (candidates[0]) await close(candidates[0]);
     if (sessions.size >= config.maxSessions) {
       throw new ApiError(429, "TOO_MANY_SESSIONS", "The backend is already serving as many streams as it allows.");
     }
@@ -196,11 +206,11 @@ export function createPlaybackManager({ config, engine, tokens, tools, logger = 
   }
 
   return {
-    createTorrent(body) {
+    async createTorrent(body) {
       if (!config.enableTorrents) throw new ApiError(403, "TORRENTS_DISABLED", "Torrent streaming is turned off on this backend.");
       const infoHash = String(body.infoHash || "").toLowerCase();
       if (!isValidInfoHash(infoHash)) throw new ApiError(400, "INVALID_INFO_HASH", "That isn't a valid torrent hash.");
-      assertCapacity();
+      await ensureCapacity();
       const session = {
         ...baseSession("torrent", body),
         infoHash,
@@ -217,14 +227,14 @@ export function createPlaybackManager({ config, engine, tokens, tools, logger = 
       return { id: session.id, state: session.state };
     },
 
-    createUrl(body) {
+    async createUrl(body) {
       let url;
       try {
         url = parsePublicUrl(body.url, { allowPrivate: config.allowPrivateUpstreams });
       } catch (error) {
         throw new ApiError(400, error.code || "INVALID_URL", error.message);
       }
-      assertCapacity();
+      await ensureCapacity();
       const session = {
         ...baseSession("url", body),
         url: url.toString(),

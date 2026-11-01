@@ -1,5 +1,5 @@
 {
-  "name": "nuvio-tv-smart",
+  "name": "nuvio-web",
   "private": true,
   "type": "module",
   "version": "1.3.0",
@@ -28,11 +28,14 @@
     "sync:tizen": "node ./scripts/sync-wrapper.mjs --tizen",
     "sync:webos": "node ./scripts/sync-wrapper.mjs --webos",
     "web:build": "node ./scripts/web-build.mjs",
-    "web:dev": "node ./scripts/web-dev.mjs"
+    "web:dev": "node ./scripts/web-dev.mjs",
+    "test:web": "playwright test",
+    "test:server": "npm --prefix server test"
   },
   "devDependencies": {
     "@csstools/postcss-global-data": "^4.0.0",
     "@eslint/js": "^9.39.4",
+    "@playwright/test": "^1.64.1",
     "@webos-tools/cli": "^3.2.6",
     "autoprefixer": "^10.6.1",
     "core-js": "3.50.0",

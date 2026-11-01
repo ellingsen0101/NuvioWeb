@@ -142,6 +142,18 @@ export const Backend = {
     return request(`/v1/playback/${encodeURIComponent(id)}`, { method: "DELETE" });
   },
 
+  // Survives the page closing, so a killed app doesn't hold a backend slot.
+  releasePlaybackOnExit(id) {
+    const { baseUrl, token } = readConfig();
+    if (!baseUrl || !token) return;
+    fetch(`${baseUrl}/v1/playback/${encodeURIComponent(id)}`, {
+      method: "DELETE",
+      headers: { Authorization: `Bearer ${token}` },
+      keepalive: true,
+      credentials: "omit"
+    }).catch(() => null);
+  },
+
   async proxyText(url, { kind = "subtitle", signal } = {}) {
     const data = await request("/v1/proxy/fetch", { method: "POST", body: { url, kind }, signal });
     return data.body;

@@ -319,6 +319,12 @@ describe("URL playback and remuxing", { skip: !hasFfmpeg && "ffmpeg isn't instal
     assert.equal(first.status, 201);
     const second = await api(limited.base, "/v1/playback/url", { method: "POST", token: limitedToken, body });
     assert.equal(second.status, 429);
+
+    // A session nobody has touched for a while makes way for a new one.
+    limited.app.playback.get(first.data.id).lastActivityAt = Date.now() - 60000;
+    const third = await api(limited.base, "/v1/playback/url", { method: "POST", token: limitedToken, body });
+    assert.equal(third.status, 201);
+    assert.equal((await api(limited.base, `/v1/playback/${first.data.id}`, { token: limitedToken })).status, 404);
     await limited.app.close();
   });
 });

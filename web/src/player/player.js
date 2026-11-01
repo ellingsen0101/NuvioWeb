@@ -740,7 +740,10 @@ export function mountPlayer(node, route) {
   };
   document.addEventListener("keydown", onKey);
 
-  const onPageHide = () => saveProgress(true);
+  const onPageHide = (event) => {
+    saveProgress(true);
+    if (!event.persisted && playbackId) Backend.releasePlaybackOnExit(playbackId);
+  };
   const onVisibility = () => {
     if (document.visibilityState === "hidden") saveProgress(true);
     else if (!video.paused) requestWakeLock();

@@ -179,7 +179,12 @@ async function renderAddons(container) {
       )
     );
   }
+  const redraw = () => {
+    if (list.isConnected) draw().catch(() => null);
+  };
+  const unsubscribers = [addonRepository.onInstalledAddonsChanged?.(redraw), addonRepository.onManifestCacheChanged?.(redraw)];
   await draw();
+  return () => unsubscribers.forEach((unsubscribe) => unsubscribe?.());
 }
 
 function renderStreaming(container) {
@@ -342,11 +347,22 @@ export function mountSettings(node, route) {
     ),
     h("div", { class: "settings-layout" }, menu, panel)
   );
+  let disposeSection = null;
+  let unmounted = false;
   if (section) {
-    Promise.resolve(RENDERERS[section.id](panel)).catch((error) => {
-      panel.append(h("p", { class: "form-error" }, error?.message || "This section couldn't load."));
-    });
+    Promise.resolve(RENDERERS[section.id](panel))
+      .then((dispose) => {
+        if (unmounted) dispose?.();
+        else disposeSection = dispose;
+      })
+      .catch((error) => {
+        panel.append(h("p", { class: "form-error" }, error?.message || "This section couldn't load."));
+      });
   } else if (window.matchMedia("(min-width: 900px)").matches) {
     navigate("settings", ["account"], null, { replace: true });
   }
+  return () => {
+    unmounted = true;
+    disposeSection?.();
+  };
 }

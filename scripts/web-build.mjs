@@ -123,6 +123,8 @@ async function writeServiceWorker(outDir) {
       file !== "sw.js" &&
       file !== "nuvio.env.js" &&
       !file.startsWith("res/i18n/") &&
+      // iPhones use native HLS and never load this, so it isn't worth pre-downloading.
+      file !== "build/hls-engine.js" &&
       !file.endsWith(".LEGAL.txt") &&
       !file.startsWith("assets/brand/app_logo_wordmark_")
   );

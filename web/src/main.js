@@ -29,6 +29,8 @@ const NAV_ITEMS = [
   { route: "library", label: "Library", iconName: "video_library" },
   { route: "settings", label: "Settings", iconName: "settings" }
 ];
+const INITIAL_SYNC_KEY = "webInitialSyncProfiles";
+const INITIAL_SYNC_WAIT_MS = 8000;
 const FULLSCREEN_ROUTES = new Set(["login", "server", "profiles", "player"]);
 
 // "loading" until auth settles, then login -> profiles -> app.
@@ -59,7 +61,13 @@ function renderShell() {
     buildNav("nav-rail-items")
   );
   const bottom = buildNav("nav-bottom");
-  document.getElementById("app").replaceChildren(rail, outlet, bottom);
+  const syncOverlay = h(
+    "div",
+    { class: "sync-overlay", role: "status", "aria-label": "Loading your account" },
+    h("div", { class: "spinner" }),
+    h("p", {}, "Loading your addons and library…")
+  );
+  document.getElementById("app").replaceChildren(rail, outlet, bottom, syncOverlay);
   navItems = [...rail.querySelectorAll(".nav-item"), ...bottom.querySelectorAll(".nav-item")];
   return outlet;
 }
@@ -105,10 +113,23 @@ export async function enterApp(profileId = null) {
   await I18n.init();
   ThemeManager.apply({ enforceAccess: true, access: MemberAccessRepository.getCachedAccess() });
   void MemberAccessRepository.getAccess().catch(() => null);
-  void StartupSyncService.requestSyncNow({ notifyPullCompleted: true }).catch((error) => {
+  const syncing = StartupSyncService.requestSyncNow({ notifyPullCompleted: true }).catch((error) => {
     console.warn("Profile sync failed", error);
   });
+  await waitForFirstSync(id, syncing);
   enterGate("app");
+}
+
+// The first time a profile opens on this browser its addons exist only on the account, so opening
+// a title too early would fail. Later launches use the local copy and sync in the background.
+async function waitForFirstSync(profileId, syncing) {
+  if (!AuthManager.isAuthenticated) return;
+  const done = LocalStore.get(INITIAL_SYNC_KEY, []);
+  if (done.includes(String(profileId))) return;
+  document.body.classList.add("is-syncing");
+  await Promise.race([syncing, new Promise((resolve) => setTimeout(resolve, INITIAL_SYNC_WAIT_MS))]);
+  document.body.classList.remove("is-syncing");
+  LocalStore.set(INITIAL_SYNC_KEY, [...done, String(profileId)]);
 }
 
 async function routeAfterAuth() {
@@ -139,6 +160,7 @@ function onAuthState(state) {
   if (state === AuthState.SIGNED_OUT) {
     StartupSyncService.stop();
     profileEntered = false;
+    LocalStore.remove(INITIAL_SYNC_KEY);
     if (LocalStore.get(GUEST_KEY, false)) {
       enterApp().catch(() => enterGate("profiles"));
     } else if (gate !== "login") {
@@ -160,11 +182,14 @@ function onAuthState(state) {
 
 function registerServiceWorker() {
   if (!("serviceWorker" in navigator) || typeof __NUVIO_WEB_DEV__ === "undefined" || __NUVIO_WEB_DEV__) return;
-  window.addEventListener("load", () => {
+  const register = () => {
     navigator.serviceWorker.register("./sw.js").catch((error) => {
       console.warn("Service worker registration failed", error);
     });
-  });
+  };
+  // Startup is async, so the load event may already have fired by the time this runs.
+  if (document.readyState === "complete") register();
+  else window.addEventListener("load", register, { once: true });
 }
 
 function refreshOnForeground() {

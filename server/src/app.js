@@ -216,12 +216,12 @@ export async function createApp(config, { logger = console, createEngine = creat
     }
     if (method === "POST" && pathname === "/v1/playback/torrent") {
       rateLimit(request, "playback");
-      json(response, 201, playback.createTorrent(await readJson(request)));
+      json(response, 201, await playback.createTorrent(await readJson(request)));
       return;
     }
     if (method === "POST" && pathname === "/v1/playback/url") {
       rateLimit(request, "playback");
-      json(response, 201, playback.createUrl(await readJson(request)));
+      json(response, 201, await playback.createUrl(await readJson(request)));
       return;
     }
     const playbackMatch = /^\/v1\/playback\/([0-9a-f-]{36})(\/hls)?$/.exec(pathname);
