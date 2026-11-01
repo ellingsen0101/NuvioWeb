@@ -1,3 +1,12 @@
+> **This is Nuvio Web**, an independent port of NuvioTVSmart to browsers and iOS/Android PWAs. It adds a touch-first interface in `web/` and a separate streaming backend in `server/`.
+> Read [what works and what doesn't](docs/web/STATUS.md), the [architecture](docs/web/ARCHITECTURE.md), and [how to deploy](docs/web/DEPLOYMENT.md). It isn't affiliated with Nuvio Media. See [NOTICE](NOTICE.md).
+>
+> ```bash
+> npm ci --ignore-scripts && npm run web:dev
+> ```
+>
+> The original README follows.
+
 <div align="center">
 
   <img src="assets/brand/app_logo_wordmark.png" alt="Nuvio" width="300" />

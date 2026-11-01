@@ -6,7 +6,7 @@ import { loadInstalledAddons } from "../services/addons.js";
 import { catalogRepository } from "../../../js/data/repository/catalogRepository.js";
 import { watchProgressRepository } from "../../../js/data/repository/watchProgressRepository.js";
 import { getWatchProgressFraction } from "../../../js/domain/model/watchProgress.js";
-import { button, clear, emptyState, h, icon, image, safeImageUrl, spinner, toast } from "../lib/dom.js";
+import { button, clear, emptyState, fill, h, icon, image, safeImageUrl, spinner, toast } from "../lib/dom.js";
 import { hrefFor, navigate } from "../lib/router.js";
 import { continueCard, detailHref, posterCard, row, skeletonRow } from "../components/cards.js";
 
@@ -29,10 +29,20 @@ function renderHero(container, items) {
   function show(next) {
     index = (next + candidates.length) % candidates.length;
     const item = candidates[index];
+    // The previous artwork stays up until the next has loaded, so rotating never flashes black.
     const art = image(item.background || item.poster, { alt: "", eager: true });
-    backdrop.replaceChildren(art);
+    art.addEventListener(
+      "load",
+      () => {
+        [...backdrop.children].forEach((node) => {
+          if (node !== art) setTimeout(() => node.remove(), 700);
+        });
+      },
+      { once: true }
+    );
+    backdrop.append(art);
     const logo = safeImageUrl(item.logo);
-    clear(content).append(
+    fill(content,
       logo
         ? h("img", { class: "hero-logo", src: logo, alt: item.name, referrerPolicy: "no-referrer" })
         : h("h1", { class: "hero-title" }, item.name),

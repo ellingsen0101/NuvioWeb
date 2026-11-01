@@ -191,4 +191,5 @@ test("playlists get the media token on every URI and lose directory paths", () =
   assert.ok(output.includes('URI="init.mp4?t=a%2Bb"'));
   assert.ok(output.includes("\nseg00000.m4s?t=a%2Bb\n"));
   assert.ok(!output.includes("/tmp"));
+  assert.ok(output.startsWith("#EXTM3U\n#EXT-X-START:TIME-OFFSET=0,PRECISE=YES\n"), "plays from the start while still being written");
 });

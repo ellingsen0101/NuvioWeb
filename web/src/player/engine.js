@@ -38,6 +38,7 @@ export function createEngine(video, { onFatal, onTracks }) {
     if (!Hls.isSupported()) throw new Error("This browser can't play HLS streams.");
     hls = new Hls({
       enableWorker: true,
+      startPosition: 0,
       maxBufferLength: 30,
       maxMaxBufferLength: 60,
       backBufferLength: 30,

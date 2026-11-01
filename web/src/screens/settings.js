@@ -8,7 +8,7 @@ import { addonRepository } from "../../../js/data/repository/addonRepository.js"
 import { ThemeManager } from "../../../js/ui/theme/themeManager.js";
 import { availableThemeIds } from "../../../js/ui/theme/themeAccess.js";
 import { MemberAccessRepository } from "../../../js/data/remote/supabase/memberAccessRepository.js";
-import { button, clear, h, icon, iconButton, image, spinner, toast } from "../lib/dom.js";
+import { button, clear, fill, h, icon, iconButton, image, spinner, toast } from "../lib/dom.js";
 import { goBack, hrefFor, navigate } from "../lib/router.js";
 import { Backend } from "../services/backend.js";
 import { showLogin, switchProfile } from "../main.js";
@@ -39,7 +39,7 @@ function settingsRow(label, detail, control) {
 function renderAccount(container) {
   const signedIn = AuthManager.isAuthenticated;
   const server = ServerConfigurationStore.getActive();
-  container.append(
+  fill(container,
     settingsRow(
       signedIn ? "Signed in" : "Not signed in",
       signedIn
@@ -81,7 +81,16 @@ async function renderAddons(container) {
         if (!url) return;
         submit.disabled = true;
         try {
-          await addonRepository.addAddon(url);
+          // addAddon stores any URL it's given, so the manifest is checked first.
+          const manifest = await addonRepository.fetchAddon(url, { force: true });
+          if (manifest?.status !== "success") {
+            toast("Couldn't add this addon: its manifest didn't load.", { error: true });
+            return;
+          }
+          if ((await addonRepository.addAddon(url)) === false) {
+            toast(addonRepository.canEdit() ? "This addon is already installed." : "This profile can't change addons.", { error: true });
+            return;
+          }
           input.value = "";
           toast("Addon added");
           await draw();
@@ -305,7 +314,10 @@ function renderAbout(container) {
     h(
       "div",
       { class: "link-row" },
-      h("a", { href: "https://github.com/NuvioMedia/NuvioTVSmart", target: "_blank", rel: "noopener noreferrer" }, "Original source"),
+      globalThis.__NUVIO_ENV__?.NUVIO_WEB_SOURCE_URL
+        ? h("a", { href: globalThis.__NUVIO_ENV__.NUVIO_WEB_SOURCE_URL, target: "_blank", rel: "noopener noreferrer" }, "Source code")
+        : null,
+      h("a", { href: "https://github.com/NuvioMedia/NuvioTVSmart", target: "_blank", rel: "noopener noreferrer" }, "Original project"),
       h("a", { href: "./LICENSE.txt", target: "_blank", rel: "noopener" }, "License")
     )
   );

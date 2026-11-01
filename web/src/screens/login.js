@@ -9,7 +9,7 @@ import {
   supportsTvLogin
 } from "../../../js/core/server/serverConfiguration.js";
 import { ServerConfigurationStore } from "../../../js/data/local/serverConfigurationStore.js";
-import { button, clear, h, safeLinkUrl, spinner, toast } from "../lib/dom.js";
+import { button, clear, fill, h, safeLinkUrl, spinner, toast } from "../lib/dom.js";
 import { continueAsGuest } from "../main.js";
 
 // The generator is a classic script, the same one the TV app loads, needed only on this screen.
@@ -60,7 +60,7 @@ function renderDeviceCode(panel, isActive) {
 
     const loginUrl = safeLinkUrl(session.loginUrl);
     const status = h("p", { class: "login-status", role: "status" }, "Waiting for approval…");
-    clear(panel).append(
+    fill(panel,
       qrcode ? h("div", { class: "login-qr-wrap" }, qrImage(qrcode, session.loginUrl)) : null,
       h("p", { class: "login-hint" }, "Scan with another device, or open the link on this one."),
       h("div", { class: "login-code", "aria-label": "Sign-in code" }, session.displayCode),

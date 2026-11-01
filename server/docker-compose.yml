@@ -1,0 +1,44 @@
+# Backend behind Caddy, which obtains and renews the HTTPS certificate automatically.
+# Set BACKEND_DOMAIN and the values in .env first. See docs/web/DEPLOYMENT.md.
+services:
+  backend:
+    build: .
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      TRUST_PROXY: "true"
+      PUBLIC_BASE_URL: "https://${BACKEND_DOMAIN:?Set BACKEND_DOMAIN in .env}"
+    volumes:
+      - cache:/data/cache
+    ports:
+      # BitTorrent peers. Set TORRENT_PORT in .env to the same value. Streaming works without
+      # inbound peers, but opening this helps on swarms with few seeders.
+      - "6881:6881/tcp"
+      - "6881:6881/udp"
+    read_only: true
+    tmpfs:
+      - /tmp
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    mem_limit: 2g
+    pids_limit: 512
+
+  caddy:
+    image: caddy:2
+    restart: unless-stopped
+    depends_on:
+      - backend
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      BACKEND_DOMAIN: ${BACKEND_DOMAIN}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+
+volumes:
+  cache:
+  caddy-data:

@@ -154,6 +154,9 @@ export function rewritePlaylist(text, token) {
     .split(/\r?\n/)
     .map((line) => {
       if (!line) return line;
+      // A playlist still being written looks like a live stream, and players would then begin near
+      // its end. This pins playback to the start, which is where the requested position is.
+      if (line === "#EXTM3U") return "#EXTM3U\n#EXT-X-START:TIME-OFFSET=0,PRECISE=YES";
       if (line.startsWith("#EXT-X-MAP:")) {
         return line.replace(/URI="([^"]+)"/, (_, uri) => `URI="${path.basename(uri)}${query}"`);
       }

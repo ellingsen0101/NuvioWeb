@@ -6,7 +6,7 @@ import { watchedItemsRepository } from "../../../js/data/repository/watchedItems
 import { getWatchProgressFraction } from "../../../js/domain/model/watchProgress.js";
 import { WatchProgressStore } from "../../../js/data/local/watchProgressStore.js";
 import { ProfileManager } from "../../../js/core/profile/profileManager.js";
-import { button, clear, emptyState, formatDuration, h, icon, iconButton, image, openSheet, safeImageUrl, safeLinkUrl, spinner, toast } from "../lib/dom.js";
+import { button, clear, emptyState, fill, formatDuration, h, icon, iconButton, image, openSheet, safeImageUrl, safeLinkUrl, spinner, toast } from "../lib/dom.js";
 import { goBack, navigate } from "../lib/router.js";
 import { Backend } from "../services/backend.js";
 import { classifyStream, streamKindLabel, streamText } from "../services/streams.js";
@@ -33,8 +33,8 @@ function progressList(contentId) {
   return WatchProgressStore.listForProfile(profileId).filter((item) => item.contentId === contentId);
 }
 
-function streamRow(stream, onPick) {
-  const kind = classifyStream(stream);
+function streamRow(stream, context, onPick) {
+  const kind = classifyStream(stream, context);
   const { name, description } = streamText(stream);
   const blocked =
     kind === "unsupported" ||
@@ -89,7 +89,7 @@ function openStreamsSheet({ meta, video, onPick }) {
     section.replaceChildren(
       h("h3", {}, group.addonName || group.name || "Sources"),
       ...group.streams.map((stream) =>
-        streamRow(stream, (picked, kind, blocked) => {
+        streamRow(stream, { season: video?.season ?? null, episode: video?.episode ?? null }, (picked, kind, blocked) => {
           if (blocked) {
             toast(kind === "unsupported" ? "This source can't be played here." : "Connect your streaming backend in Settings to use this source.", { error: true });
             return;
@@ -306,7 +306,7 @@ export function mountDetail(node, route) {
     const episodesSlot = h("div", {});
     const logo = safeImageUrl(meta.logo);
 
-    clear(body).append(
+    fill(body,
       h(
         "div",
         { class: "detail-head" },

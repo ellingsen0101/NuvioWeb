@@ -57,6 +57,7 @@ export function loadConfig(env = process.env) {
     maxTorrents: integer(env, "MAX_TORRENTS", 3),
     maxFfmpegProcesses: integer(env, "MAX_FFMPEG_PROCESSES", 2),
     maxConnections: integer(env, "TORRENT_MAX_CONNECTIONS", 55),
+    torrentPort: integer(env, "TORRENT_PORT", 0),
     maxFileBytes: integer(env, "MAX_FILE_GB", 40) * 1024 ** 3,
     maxCacheBytes: integer(env, "MAX_CACHE_GB", 40) * 1024 ** 3,
     downloadLimitBytes: integer(env, "TORRENT_DOWNLOAD_LIMIT_KBPS", -1) * (integer(env, "TORRENT_DOWNLOAD_LIMIT_KBPS", -1) > 0 ? 1024 : 1),

@@ -4,7 +4,8 @@ import { PlayerSettingsStore } from "../../../js/data/local/playerSettingsStore.
 import { button, clear, formatDuration, h, icon, iconButton, openSheet, toast } from "../lib/dom.js";
 import { goBack, navigate } from "../lib/router.js";
 import { Backend, BackendError } from "../services/backend.js";
-import { classifyStream, detectCapabilities, streamInfoHash, streamText } from "../services/streams.js";
+import { canResolveDebrid, classifyStream, detectCapabilities, streamInfoHash } from "../services/streams.js";
+import { DirectDebridResolver } from "../../../js/core/debrid/directDebridResolver.js";
 import { clearPendingPlayback, getPendingPlayback, setPendingPlayback } from "../services/playerState.js";
 import { createEngine, describeMediaError } from "./engine.js";
 import { cueAt, loadSubtitleCues } from "./subtitles.js";
@@ -14,7 +15,6 @@ const PROGRESS_SAVE_MS = 15000;
 const STATUS_POLL_MS = 1500;
 const SEEK_STEP_S = 10;
 const SPEEDS = [0.5, 0.75, 1, 1.25, 1.5, 2];
-const COMPLETED_FRACTION = 0.9;
 
 function languageName(code) {
   try {
@@ -38,7 +38,8 @@ export function mountPlayer(node, route) {
     return () => {};
   }
   const { meta, video: episode, stream, resumeMs = 0, episodes = [] } = session;
-  const kind = session.kind || classifyStream(stream);
+  // The addon's stream, or the direct link a debrid provider resolved it to.
+  let activeStream = stream;
   const controller = new AbortController();
   let disposed = false;
 
@@ -527,22 +528,22 @@ export function mountPlayer(node, route) {
       capabilities,
       startAt: pendingResumeS || 0
     };
-    const infoHash = streamInfoHash(stream);
+    const infoHash = streamInfoHash(activeStream);
     const created = infoHash
       ? await Backend.createTorrentPlayback(
           {
             ...body,
             infoHash,
-            sources: stream.sources || [],
-            fileIdx: stream.fileIdx ?? null,
-            filename: stream.behaviorHints?.filename || null,
+            sources: activeStream.sources || [],
+            fileIdx: activeStream.fileIdx ?? null,
+            filename: activeStream.behaviorHints?.filename || null,
             season: episode?.season ?? null,
             episode: episode?.episode ?? null
           },
           { signal: controller.signal }
         )
       : await Backend.createUrlPlayback(
-          { ...body, url: stream.url, headers: stream.behaviorHints?.proxyHeaders?.request || null },
+          { ...body, url: activeStream.url, headers: activeStream.behaviorHints?.proxyHeaders?.request || null },
           { signal: controller.signal }
         );
     playbackId = created.id;
@@ -561,7 +562,18 @@ export function mountPlayer(node, route) {
     setBuffering(true, "Loading…");
     errorBox.hidden = true;
     try {
-      const sourceKind = classifyStream(stream);
+      const position = { season: episode?.season ?? null, episode: episode?.episode ?? null };
+      if (canResolveDebrid(activeStream, position)) {
+        setBuffering(true, "Getting the link from your debrid service…");
+        const resolved = await DirectDebridResolver.resolve(activeStream, position);
+        if (disposed) return;
+        if (resolved?.status === "success" && resolved.stream?.url) activeStream = resolved.stream;
+        else if (!Backend.isConnected() || !streamInfoHash(activeStream)) {
+          showError(resolved?.message || "Your debrid service couldn't provide this source.");
+          return;
+        }
+      }
+      const sourceKind = classifyStream(activeStream, position);
       const needsBackend = sourceKind === "torrent" || sourceKind === "server" || triedBackendFallback;
       if (needsBackend) {
         if (!Backend.isConnected()) {
@@ -570,7 +582,7 @@ export function mountPlayer(node, route) {
         }
         await startBackendPlayback();
       } else {
-        await engine.load({ url: stream.url, kind: sourceKind === "hls" ? "hls" : "direct" });
+        await engine.load({ url: activeStream.url, kind: sourceKind === "hls" ? "hls" : "direct" });
       }
       video.play().catch(onPlayRejected);
     } catch (error) {
@@ -667,7 +679,7 @@ export function mountPlayer(node, route) {
     ["error", () => {
       const code = video.error?.code;
       // A format the browser refused gets one automatic retry through the backend, when connected.
-      if ((code === 4 || code === 3) && !triedBackendFallback && !playbackId && Backend.isConnected() && /^https?:/i.test(stream.url || "")) {
+      if ((code === 4 || code === 3) && !triedBackendFallback && !playbackId && Backend.isConnected() && /^https?:/i.test(activeStream.url || "")) {
         triedBackendFallback = true;
         setBuffering(true, "Converting for this device…");
         startSource();
@@ -756,9 +768,8 @@ export function mountPlayer(node, route) {
   setupMediaSession();
   startSource();
   loadSubtitleOptions();
-  // Fix the title for toasts and desktop tabs.
   const previousTitle = document.title;
-  document.title = `${streamText(stream).name ? title : title} · Nuvio`;
+  document.title = `${title} · Nuvio`;
 
   return () => {
     disposed = true;

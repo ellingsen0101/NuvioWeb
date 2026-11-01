@@ -43,6 +43,13 @@ export function clear(node) {
   return node;
 }
 
+// Like replaceChildren, but skips empty values. Native append() would render null as the text "null".
+export function fill(node, ...children) {
+  node.replaceChildren();
+  append(node, children);
+  return node;
+}
+
 export function spinner(label = "Loading") {
   return h("div", { class: "spinner", role: "status", "aria-label": label });
 }

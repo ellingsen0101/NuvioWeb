@@ -10,7 +10,7 @@ import { I18n } from "../../js/i18n/index.js";
 import { Platform } from "../../js/platform/index.js";
 import { ThemeManager } from "../../js/ui/theme/themeManager.js";
 import { installAddonFetchFallback } from "./services/addonFetch.js";
-import { createRouter, navigate } from "./lib/router.js";
+import { createRouter, navigate, parseHash } from "./lib/router.js";
 import { h, icon } from "./lib/dom.js";
 import { mountLogin } from "./screens/login.js";
 import { mountProfiles } from "./screens/profiles.js";
@@ -38,6 +38,11 @@ let gate = "loading";
 let profileEntered = false;
 let router = null;
 let navItems = [];
+let launchHash = null;
+
+function isGateRoute(name) {
+  return ["login", "server", "profiles"].includes(name);
+}
 
 function renderShell() {
   const outlet = h("main", { id: "outlet", class: "outlet" });
@@ -86,8 +91,23 @@ function syncChrome(route) {
 function enterGate(next) {
   gate = next;
   router.reset();
+  const current = parseHash().name;
+  if (next === "app") {
+    // A reload or deep link returns to where it pointed, once sign-in and profile choice are done.
+    const resume = launchHash;
+    launchHash = null;
+    if (resume) {
+      if (resume === location.hash) router.render();
+      else location.replace(resume);
+      return;
+    }
+    if (location.hash && !isGateRoute(current)) {
+      router.render();
+      return;
+    }
+  }
   const target = next === "login" ? "login" : next === "profiles" ? "profiles" : "home";
-  if (location.hash.replace(/^#\/?/, "").split(/[/?]/)[0] === target) router.render();
+  if (current === target && location.hash) router.render();
   else navigate(target, [], null, { replace: true });
 }
 
@@ -201,6 +221,7 @@ function refreshOnForeground() {
 }
 
 async function boot() {
+  if (location.hash && !isGateRoute(parseHash().name)) launchHash = location.hash;
   Platform.init();
   installAddonFetchFallback();
   await I18n.init();

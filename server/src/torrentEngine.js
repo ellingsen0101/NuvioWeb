@@ -40,6 +40,7 @@ export function trackersFromSources(sources, { allowPrivate = false } = {}) {
 export function createTorrentEngine(config, { logger = console } = {}) {
   const client = new WebTorrent({
     maxConns: config.maxConnections,
+    ...(config.torrentPort > 0 ? { torrentPort: config.torrentPort } : {}),
     downloadLimit: config.downloadLimitBytes,
     uploadLimit: config.uploadLimitBytes,
     // Web seed URLs come from torrent metadata, which is untrusted: they would be an SSRF route.

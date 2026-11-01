@@ -23,7 +23,8 @@ const PUBLIC_ENV_KEYS = [
   "INTRODB_API_URL",
   "SUPPORT_URL",
   "TMDB_API_KEY",
-  "NUVIO_BACKEND_URL"
+  "NUVIO_BACKEND_URL",
+  "NUVIO_WEB_SOURCE_URL"
 ];
 
 async function readPublicEnv() {

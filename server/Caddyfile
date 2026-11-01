@@ -1,0 +1,15 @@
+{$BACKEND_DOMAIN} {
+	encode {
+		match {
+			header Content-Type application/json*
+		}
+		gzip
+	}
+	# Media tokens travel in URLs because <video> can't send headers, so access logs stay off.
+	log {
+		output discard
+	}
+	reverse_proxy backend:8787 {
+		flush_interval -1
+	}
+}

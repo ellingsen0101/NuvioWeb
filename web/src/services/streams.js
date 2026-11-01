@@ -1,4 +1,6 @@
 // Classifies addon streams for the browser and picks how each one is played.
+import { DirectDebridResolver } from "../../../js/core/debrid/directDebridResolver.js";
+
 const INFO_HASH_RE = /^[0-9a-f]{40}$/i;
 const MAGNET_HASH_RE = /xt=urn:btih:([0-9a-f]{40})/i;
 const HLS_RE = /\.m3u8(?:[?#]|$)/i;
@@ -12,7 +14,17 @@ export function streamInfoHash(stream = {}) {
   return fromMagnet ? fromMagnet[1].toLowerCase() : "";
 }
 
-export function classifyStream(stream = {}) {
+// True when the account has a debrid provider that can turn this stream into a direct link.
+export function canResolveDebrid(stream, context = {}) {
+  try {
+    return !stream?.url?.startsWith?.("http") && DirectDebridResolver.canResolveStream(stream, context);
+  } catch {
+    return false;
+  }
+}
+
+export function classifyStream(stream = {}, context = {}) {
+  if (canResolveDebrid(stream, context)) return "debrid";
   if (streamInfoHash(stream)) return "torrent";
   const url = String(stream.url || "");
   if (/^https?:\/\//i.test(url)) {
@@ -30,6 +42,7 @@ export function classifyStream(stream = {}) {
 
 const KIND_LABELS = {
   torrent: "Torrent",
+  debrid: "Debrid",
   server: "Needs backend",
   hls: "HLS",
   direct: "Direct",

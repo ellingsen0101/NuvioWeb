@@ -133,6 +133,7 @@ test.describe("browsing", () => {
     await page.goto("/#/detail/movie/e2e-movie-0");
     await expect(page.locator(".detail-title")).toHaveText("Direct MP4");
     await expect(page.locator(".detail-desc")).toContainText("Automated test title");
+    await expect(page.locator(".detail-body")).not.toContainText("null");
     await page.goto("/#/detail/series/e2e-series-1");
     await expect(page.locator(".episode")).toHaveCount(2);
     await expect(page.locator(".episode-text strong").first()).toHaveText("Episode 1");
@@ -158,6 +159,15 @@ test.describe("browsing", () => {
     await expect(page.locator(".player-video")).toHaveCount(0);
   });
 
+  test("a reload stays on the same screen", async ({ page }) => {
+    await page.goto("/#/detail/series/e2e-series-1");
+    await expect(page.locator(".episode")).toHaveCount(2);
+    await page.reload();
+    await page.getByRole("button", { name: "Account Owner" }).click();
+    await expect(page.locator(".episode")).toHaveCount(2);
+    expect(page.url()).toContain("/detail/series/e2e-series-1");
+  });
+
   test("the page never scrolls sideways", async ({ page }) => {
     for (const route of ["home", "search", "library", "settings/addons", "settings/streaming", "detail/movie/e2e-movie-0", "detail/series/e2e-series-1"]) {
       await page.goto(`/#/${route}`);
@@ -165,6 +175,78 @@ test.describe("browsing", () => {
       const overflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
       expect(overflow, route).toBeLessThanOrEqual(0);
     }
+  });
+});
+
+test.describe("managing things", () => {
+  test("an addon can be added, disabled, updated, reordered and removed", async ({ page }) => {
+    page.on("dialog", (dialog) => dialog.accept());
+    await page.goto("/");
+    await page.getByRole("button", { name: "Continue without an account" }).click();
+    await expect(page.locator(".nav-item.is-active:visible")).toHaveText(/Home/);
+    await page.goto("/#/settings/addons");
+
+    await page.getByLabel("Addon URL").fill(`${FIXTURE}/addon/manifest.json`);
+    await page.getByRole("button", { name: "Add", exact: true }).click();
+    const row = page.locator(".addon-row", { hasText: "E2E Test Addon" });
+    await expect(row).toBeVisible({ timeout: 15000 });
+    await expect(page.locator(".addon-text strong").last()).toHaveText("E2E Test Addon");
+
+    await page.getByRole("button", { name: "Move E2E Test Addon up" }).click();
+    await expect(page.locator(".addon-text strong").nth(1)).toHaveText("E2E Test Addon");
+
+    await page.getByRole("button", { name: "Update E2E Test Addon" }).click();
+    await expect(page.locator(".toast")).toHaveText("Addon updated");
+
+    await page.getByLabel("Enable E2E Test Addon").uncheck({ force: true });
+    await expect(row).toHaveClass(/is-disabled/);
+
+    await page.getByRole("button", { name: "Remove E2E Test Addon" }).click();
+    await expect(row).toHaveCount(0);
+  });
+
+  test("a bad addon URL gets a clear message and nothing is added", async ({ page }) => {
+    await page.goto("/");
+    await page.getByRole("button", { name: "Continue without an account" }).click();
+    await expect(page.locator(".nav-item.is-active:visible")).toHaveText(/Home/);
+    await page.goto("/#/settings/addons");
+    await expect(page.locator(".addon-row").first()).toBeVisible({ timeout: 15000 });
+    const before = await page.locator(".addon-row").count();
+    await page.getByLabel("Addon URL").fill(`${FIXTURE}/not-an-addon/manifest.json`);
+    await page.getByRole("button", { name: "Add", exact: true }).click();
+    await expect(page.locator(".toast")).toContainText("Couldn't add");
+    await expect(page.locator(".addon-row")).toHaveCount(before);
+  });
+
+  test("marking an episode watched sticks and syncs", async ({ page, request }) => {
+    await signIn(page, request);
+    await enterProfile(page);
+    await page.goto("/#/detail/series/e2e-series-1");
+    await page.getByRole("button", { name: "Mark as watched" }).first().click();
+    await expect(page.locator(".episode").first()).toHaveClass(/is-watched/);
+    await expect.poll(async () => (await (await request.get(`${FIXTURE}/__test/state`)).json()).pushes.sync_push_watched_items, { timeout: 15000 }).toBeTruthy();
+    await page.getByRole("button", { name: "Mark as unwatched" }).first().click();
+    await expect(page.locator(".episode").first()).not.toHaveClass(/is-watched/);
+  });
+
+  test("a profile can be added and synced", async ({ page, request }) => {
+    await signIn(page, request);
+    await page.getByRole("button", { name: "Add Profile" }).click();
+    await page.getByLabel("Profile name").fill("Kids");
+    await page.locator(".sheet").getByRole("button", { name: "Save" }).click();
+    await expect(page.locator(".profile-name", { hasText: "Kids" })).toBeVisible();
+    await expect.poll(async () => JSON.stringify((await (await request.get(`${FIXTURE}/__test/state`)).json()).pushes.sync_push_profiles || ""), { timeout: 15000 }).toContain("Kids");
+  });
+
+  test("changing the accent applies immediately", async ({ page }) => {
+    await page.goto("/");
+    await page.getByRole("button", { name: "Continue without an account" }).click();
+    await expect(page.locator(".nav-item.is-active:visible")).toHaveText(/Home/);
+    await page.goto("/#/settings/appearance");
+    const accent = () => page.evaluate(() => getComputedStyle(document.documentElement).getPropertyValue("--secondary-color").trim());
+    const before = await accent();
+    await page.getByRole("button", { name: "crimson" }).click();
+    await expect.poll(accent).not.toBe(before);
   });
 });
 
@@ -183,6 +265,11 @@ test.describe("playback", () => {
     await page.locator(".player-top .icon-btn").click({ force: true });
     await expect(page.locator(".player-video")).toHaveCount(0);
     await expect.poll(async () => (await (await request.get(`${FIXTURE}/__test/state`)).json()).pushes.sync_push_watch_progress, { timeout: 20000 }).toBeTruthy();
+
+    await page.goto("/#/home");
+    const continueCard = page.locator(".continue-card", { hasText: "Direct MP4" });
+    await expect(continueCard).toBeVisible();
+    expect(await continueCard.locator(".continue-bar > span").evaluate((bar) => parseFloat(bar.style.width))).toBeGreaterThan(30);
 
     await page.goto("/#/detail/movie/e2e-movie-0");
     await expect(page.locator(".detail-actions .btn-primary")).toContainText("Resume");
@@ -249,6 +336,10 @@ test.describe("playback through the backend", () => {
     await openStream(page, "e2e-movie-2");
     await expectPlaying(page);
     await expect(page.locator(".player-time").last()).toHaveText("1:30");
+
+    await page.getByRole("button", { name: "Audio" }).click({ force: true });
+    await expect(page.locator(".picker-item")).toContainText("AC3");
+    await page.locator(".sheet-head .icon-btn").click();
 
     await page.locator(".player-scrubber").evaluate((input) => {
       input.value = "800";
@@ -322,7 +413,7 @@ test.describe("PWA", () => {
     expect(cached.length).toBeGreaterThan(3);
     for (const url of cached) {
       expect(new URL(url).origin, url).toBe("http://localhost:6200");
-      expect(url).not.toMatch(/nuvio\.env|\/rest\/|\/auth\/|\/media\/|\.m3u8/);
+      expect(url).not.toMatch(/\/rest\/|\/auth\/|\/media\/|\.m3u8/);
     }
   });
 

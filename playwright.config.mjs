@@ -4,7 +4,6 @@ import { defineConfig, devices } from "@playwright/test";
 // tests need. Desktop-browser iPhone emulation checks layout only: it says nothing about real iOS.
 export default defineConfig({
   testDir: "web/e2e",
-  testMatch: "*.spec.mjs",
   timeout: 90000,
   fullyParallel: false,
   workers: 1,
@@ -12,7 +11,6 @@ export default defineConfig({
   outputDir: "test-results",
   use: {
     baseURL: "http://localhost:6200",
-    channel: "msedge",
     screenshot: "only-on-failure",
     trace: "retain-on-failure"
   },
@@ -26,7 +24,9 @@ export default defineConfig({
   projects: [
     {
       name: "phone",
+      testMatch: "app.spec.mjs",
       use: {
+        channel: "msedge",
         viewport: { width: 390, height: 844 },
         deviceScaleFactor: 2,
         isMobile: true,
@@ -34,6 +34,8 @@ export default defineConfig({
         userAgent: "Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0 Mobile Safari/537.36"
       }
     },
-    { name: "desktop", use: { viewport: { width: 1440, height: 900 } } }
+    { name: "desktop", testMatch: "app.spec.mjs", use: { channel: "msedge", viewport: { width: 1440, height: 900 } } },
+    // The closest thing to iOS Safari available on this machine, and still not iOS Safari.
+    { name: "iphone-webkit", testMatch: "ios-webkit.spec.mjs", use: { ...devices["iPhone 14"] } }
   ]
 });

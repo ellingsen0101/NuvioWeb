@@ -1,0 +1,57 @@
+name: Nuvio Web CI
+
+on:
+  push:
+    branches: [develop, main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  backend:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: sudo apt-get update && sudo apt-get install -y ffmpeg
+      - run: npm ci
+        working-directory: server
+      - run: npm test
+        working-directory: server
+
+  frontend-build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: npm ci --ignore-scripts
+      - run: npm run web:build
+      - name: Check that no secret-shaped values reach the build
+        run: |
+          ! grep -E "TRAKT_CLIENT_SECRET|service_role" dist-web/nuvio.env.js
+
+  browser-tests:
+    # Edge is preinstalled on GitHub's Windows runners, and has the H.264 and AAC decoders the
+    # playback tests need.
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: choco install ffmpeg -y --no-progress
+      - run: npm ci --ignore-scripts
+      - run: npm ci
+        working-directory: server
+      - run: npx playwright install webkit
+      - run: npm run test:web
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: playwright-results
+          path: test-results/
