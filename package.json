@@ -30,7 +30,8 @@
     "web:build": "node ./scripts/web-build.mjs",
     "web:dev": "node ./scripts/web-dev.mjs",
     "test:web": "playwright test",
-    "test:server": "npm --prefix server test"
+    "test:server": "npm --prefix server test",
+    "web:serve": "node ./scripts/web-serve.mjs"
   },
   "devDependencies": {
     "@csstools/postcss-global-data": "^4.0.0",

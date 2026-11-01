@@ -92,6 +92,53 @@ Read this before exposing the service:
 - New `ACCESS_KEYS`: existing sessions keep working until they expire.
 - New `TOKEN_SECRET`: signs everyone out at once and ends every stream link.
 
+## Self-hosting on your own PC with Tailscale
+
+This serves the app and the backend from your PC over HTTPS, reachable only by devices on your tailnet.
+Nothing is exposed to the internet, and the Service Worker and PWA install work because the certificate
+is real. Your PC has to be on and awake to use it.
+
+In the [Tailscale admin console](https://login.tailscale.com/admin/dns), turn on **MagicDNS** and
+**HTTPS Certificates**. Below, `MACHINE.TAILNET.ts.net` is your PC's name from `tailscale status`.
+
+In `server/.env`:
+
+```
+ALLOWED_ORIGINS=https://MACHINE.TAILNET.ts.net
+PUBLIC_BASE_URL=https://MACHINE.TAILNET.ts.net:8443
+TRUST_PROXY=true
+```
+
+Build with the backend URL, then start both services, each in its own terminal:
+
+```bash
+NUVIO_BACKEND_URL=https://MACHINE.TAILNET.ts.net:8443 npm run web:build
+```
+
+```bash
+npm run web:serve
+```
+
+```bash
+npm --prefix server run dev
+```
+
+Publish them on your tailnet. `serve` is private to your devices. Don't use `funnel`, which makes a
+service public:
+
+```bash
+tailscale serve --bg --https=443 http://127.0.0.1:4173
+```
+
+```bash
+tailscale serve --bg --https=8443 http://127.0.0.1:8787
+```
+
+On the iPhone, with Tailscale connected, open `https://MACHINE.TAILNET.ts.net` in Safari and choose
+**Share → Add to Home Screen**. Enter the backend's access key in **Settings → Streaming backend**.
+
+To stop publishing, run `tailscale serve reset`.
+
 ## 3. GPL-3.0
 
 Nuvio Web is a modified version of a GPL-3.0 program. If you make the deployed app available to anyone
