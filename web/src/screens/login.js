@@ -8,6 +8,7 @@ import {
   supportsEmailPasswordAuth,
   supportsTvLogin
 } from "../../../js/core/server/serverConfiguration.js";
+import { LocalStore } from "../../../js/core/storage/localStore.js";
 import { ServerConfigurationStore } from "../../../js/data/local/serverConfigurationStore.js";
 import { button, clear, fill, h, safeLinkUrl, spinner, toast } from "../lib/dom.js";
 import { continueAsGuest } from "../main.js";
@@ -37,32 +38,66 @@ function describeError(message) {
   return text || "Something went wrong.";
 }
 
+// Keeps the code across an app reload, so that approving it on the website still signs this app in.
+// It's short-lived and useless without the anonymous session already stored by upstream's SessionStore.
+const PENDING_LOGIN_KEY = "webPendingDeviceLogin";
+
+function readPendingLogin() {
+  const pending = LocalStore.get(PENDING_LOGIN_KEY, null);
+  if (!pending?.code || !pending.deviceNonce || !(pending.expiresAt > Date.now())) {
+    LocalStore.remove(PENDING_LOGIN_KEY);
+    return null;
+  }
+  return pending;
+}
+
+function savePendingLogin(session) {
+  if (session.expiresAt) LocalStore.set(PENDING_LOGIN_KEY, session);
+}
+
+function clearPendingLogin() {
+  LocalStore.remove(PENDING_LOGIN_KEY);
+}
+
 function renderDeviceCode(panel, isActive) {
   let pollTimer = 0;
   let cancelled = false;
+  let pollNow = null;
+  // iPhones pause a Home Screen app, and may reload it, while you approve the code on the website.
+  const onReturn = () => {
+    if (document.visibilityState === "visible") pollNow?.();
+  };
+  document.addEventListener("visibilitychange", onReturn);
+  window.addEventListener("pageshow", onReturn);
   const stop = () => {
     cancelled = true;
     clearTimeout(pollTimer);
+    document.removeEventListener("visibilitychange", onReturn);
+    window.removeEventListener("pageshow", onReturn);
     QrLoginService.cleanup?.();
   };
 
-  async function begin() {
+  async function begin({ fresh = false } = {}) {
+    pollNow = null;
+    clearTimeout(pollTimer);
     clear(panel).append(spinner("Preparing sign-in"));
-    const [session, qrcode] = await Promise.all([QrLoginService.start(), loadQrLibrary().catch(() => null)]);
+    const saved = fresh ? null : readPendingLogin();
+    const [session, qrcode] = await Promise.all([saved || QrLoginService.start(), loadQrLibrary().catch(() => null)]);
     if (cancelled || !isActive()) return;
     if (!session) {
       clear(panel).append(
         h("p", { class: "form-error" }, describeError(QrLoginService.getLastError())),
-        button("Try again", begin, { kind: "primary" })
+        button("Try again", () => begin({ fresh: true }), { kind: "primary" })
       );
       return;
     }
+    savePendingLogin(session);
 
     const loginUrl = safeLinkUrl(session.loginUrl);
     const status = h("p", { class: "login-status", role: "status" }, "Waiting for approval…");
     fill(panel,
       qrcode ? h("div", { class: "login-qr-wrap" }, qrImage(qrcode, session.loginUrl)) : null,
-      h("p", { class: "login-hint" }, "Scan with another device, or open the link on this one."),
+      h("p", { class: "login-hint" }, "Scan with another device, or open the sign-in page on this one. It's on Nuvio's website, so come back to this app after you approve."),
       h("div", { class: "login-code", "aria-label": "Sign-in code" }, session.displayCode),
       loginUrl
         ? h(
@@ -74,31 +109,44 @@ function renderDeviceCode(panel, isActive) {
       status
     );
 
+    let polling = false;
+    let finished = false;
     const poll = async () => {
-      if (cancelled || !isActive()) return;
-      if (session.expiresAt && Date.now() > session.expiresAt) {
-        begin();
-        return;
-      }
-      const result = await QrLoginService.poll(session.code, session.deviceNonce);
-      if (cancelled || !isActive()) return;
-      const state = String(result?.status || "").toLowerCase();
-      if (state === "approved") {
-        status.textContent = "Approved. Signing in…";
-        const exchanged = await QrLoginService.exchange(session.code, session.deviceNonce);
-        if (!exchanged && !cancelled) {
-          status.textContent = describeError(QrLoginService.getLastError());
-          status.classList.add("form-error");
+      if (cancelled || !isActive() || polling || finished) return;
+      polling = true;
+      clearTimeout(pollTimer);
+      try {
+        if (session.expiresAt && Date.now() > session.expiresAt) {
+          finished = true;
+          begin({ fresh: true });
+          return;
         }
-        return;
+        const result = await QrLoginService.poll(session.code, session.deviceNonce);
+        if (cancelled || !isActive()) return;
+        const state = String(result?.status || "").toLowerCase();
+        if (state === "approved") {
+          finished = true;
+          status.textContent = "Approved. Signing in…";
+          const exchanged = await QrLoginService.exchange(session.code, session.deviceNonce);
+          clearPendingLogin();
+          if (!exchanged && !cancelled) {
+            status.textContent = describeError(QrLoginService.getLastError());
+            status.classList.add("form-error");
+          }
+          return;
+        }
+        if (state === "expired" || state === "used" || state === "cancelled") {
+          finished = true;
+          begin({ fresh: true });
+          return;
+        }
+        pollTimer = setTimeout(poll, Math.max(2, result?.pollIntervalSeconds || session.pollIntervalSeconds) * 1000);
+      } finally {
+        polling = false;
       }
-      if (state === "expired" || state === "used" || state === "cancelled") {
-        begin();
-        return;
-      }
-      pollTimer = setTimeout(poll, Math.max(2, result?.pollIntervalSeconds || session.pollIntervalSeconds) * 1000);
     };
-    pollTimer = setTimeout(poll, session.pollIntervalSeconds * 1000);
+    pollNow = poll;
+    pollTimer = setTimeout(poll, saved ? 0 : session.pollIntervalSeconds * 1000);
   }
 
   begin();

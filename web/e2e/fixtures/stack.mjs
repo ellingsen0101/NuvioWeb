@@ -172,6 +172,7 @@ function createFixtureServer({ torrentHashes }) {
       if (rpc.startsWith("sync_push_")) state.pushes[rpc] = body;
       switch (rpc) {
         case "start_device_login_session":
+          state.loginStarts = (state.loginStarts || 0) + 1;
           return sendJson(response, 200, [{ device_code: "device-1", user_code: "ABCD-1234", verification_uri: `${FIXTURE}/link`, verification_uri_complete: `${FIXTURE}/link?code=ABCD-1234`, expires_at: new Date(Date.now() + 600000).toISOString(), poll_interval_seconds: 1 }]);
         case "poll_tv_login_session":
           return sendJson(response, 200, [{ status: state.approved ? "approved" : "pending", poll_interval_seconds: 1 }]);
@@ -211,7 +212,7 @@ function createFixtureServer({ torrentHashes }) {
       }
       if (pathname === "/__test/state") return sendJson(response, 200, state);
       if (pathname === "/__test/reset") {
-        Object.assign(state, { approved: false, pushes: {}, expireNext: false, rejectRefresh: false, refreshes: 0 });
+        Object.assign(state, { approved: false, pushes: {}, expireNext: false, rejectRefresh: false, refreshes: 0, loginStarts: 0 });
         return sendJson(response, 200, { ok: true });
       }
       if (pathname === "/__test/expire") {

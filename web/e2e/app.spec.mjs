@@ -60,6 +60,32 @@ test.describe("account", () => {
     await expect(page.locator(".poster-title", { hasText: "Direct MP4" }).first()).toBeVisible();
   });
 
+  test("sign-in survives the app reloading while the code is approved on the website", async ({ page, request }) => {
+    await page.goto("/");
+    await expect(page.locator(".login-code")).toHaveText("ABCD-1234");
+    await page.reload();
+    await expect(page.locator(".login-code")).toHaveText("ABCD-1234");
+    await fixture(request, "approve");
+    await expect(page.getByRole("heading", { name: "Who's watching?" })).toBeVisible({ timeout: 20000 });
+    const state = await (await request.get(`${FIXTURE}/__test/state`)).json();
+    expect(state.loginStarts, "the reload reused the same code").toBe(1);
+    expect(await page.evaluate(() => localStorage.getItem("webPendingDeviceLogin"))).toBeNull();
+  });
+
+  test("coming back to the app checks for approval right away", async ({ page, request }) => {
+    await page.goto("/");
+    await expect(page.locator(".login-code")).toHaveText("ABCD-1234");
+    await page.evaluate(() => {
+      const realSetTimeout = window.setTimeout;
+      window.setTimeout = (fn, delay, ...rest) => realSetTimeout(fn, delay >= 1000 ? 600000 : delay, ...rest);
+    });
+    // Lets the timer already waiting run out, so that only the return event can trigger a check.
+    await page.waitForTimeout(1500);
+    await fixture(request, "approve");
+    await page.evaluate(() => document.dispatchEvent(new Event("visibilitychange")));
+    await expect(page.getByRole("heading", { name: "Who's watching?" })).toBeVisible({ timeout: 10000 });
+  });
+
   test("an unavailable addon is shown as unavailable and doesn't break the rest", async ({ page, request }) => {
     await signIn(page, request);
     await enterProfile(page);
