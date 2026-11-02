@@ -147,6 +147,52 @@ describe("authentication and access control", () => {
     assert.equal((await api(ctx.base, "/v1/capabilities", { token: login.data.token })).status, 401);
   });
 
+  test("someone asks for access, the owner approves, and they're in without a code", async () => {
+    writeInvites(invitesFile, [{ name: "Owner Phone", hash: hashCode("owner-phone-code"), admin: true, createdAt: "2026-11-02" }]);
+    const owner = (await api(ctx.base, "/v1/auth/session", { method: "POST", body: { accessKey: "owner-phone-code" } })).data.token;
+    assert.deepEqual((await api(ctx.base, "/v1/me", { token: owner })).data, { name: "Owner Phone", admin: true });
+
+    const asked = await api(ctx.base, "/v1/access/requests", { method: "POST", body: { name: "  Vilde <b> ", signInCode: "AB12CD", signInLink: "https://nuvio.tv/link?code=AB12CD" } });
+    assert.equal(asked.status, 201);
+    const check = () => api(ctx.base, `/v1/access/requests/${asked.data.id}`, { headers: { "X-Request-Token": asked.data.pollToken } });
+    assert.equal((await check()).data.status, "pending");
+    assert.equal((await api(ctx.base, `/v1/access/requests/${asked.data.id}`, { headers: { "X-Request-Token": "guess" } })).status, 404, "needs the request's own secret");
+
+    const pending = (await api(ctx.base, "/v1/admin/requests", { token: owner })).data.requests;
+    assert.equal(pending.length, 1);
+    assert.equal(pending[0].name, "Vilde b", "markup stripped");
+    assert.equal(pending[0].signInLink, "https://nuvio.tv/link?code=AB12CD");
+
+    const approved = await api(ctx.base, `/v1/admin/requests/${asked.data.id}/approve`, { method: "POST", token: owner });
+    assert.equal(approved.status, 200);
+    const first = (await check()).data;
+    assert.equal(first.status, "approved");
+    assert.match(first.code, /^[a-z2-9-]{27}$/);
+    assert.equal((await check()).data.code, undefined, "the code is handed over once");
+
+    const friend = (await api(ctx.base, "/v1/auth/session", { method: "POST", body: { accessKey: first.code } })).data.token;
+    assert.deepEqual((await api(ctx.base, "/v1/me", { token: friend })).data, { name: "Vilde b", admin: false });
+    assert.equal((await api(ctx.base, "/v1/admin/requests", { token: friend })).status, 403, "friends can't approve");
+
+    const people = (await api(ctx.base, "/v1/admin/people", { token: owner })).data.people.map((person) => person.name);
+    assert.deepEqual(people, ["Owner Phone", "Vilde b"]);
+    assert.equal((await api(ctx.base, `/v1/admin/people/${encodeURIComponent("Owner Phone")}`, { method: "DELETE", token: owner })).status, 409, "the owner can't remove themselves");
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    assert.equal((await api(ctx.base, `/v1/admin/people/${encodeURIComponent("Vilde b")}`, { method: "DELETE", token: owner })).status, 204);
+    assert.equal((await api(ctx.base, "/v1/me", { token: friend })).status, 401, "removed at once");
+    writeInvites(invitesFile, []);
+  });
+
+  test("requests can't carry links to other sites, and are rate limited", async () => {
+    const phishing = await api(ctx.base, "/v1/access/requests", { method: "POST", body: { name: "Mallory", signInLink: "https://nuvio.tv.evil.example/link" } });
+    assert.equal(phishing.status, 400);
+    const statuses = [];
+    for (let attempt = 0; attempt < 5; attempt += 1) {
+      statuses.push((await api(ctx.base, "/v1/access/requests", { method: "POST", body: { name: `Spam ${attempt}` } })).status);
+    }
+    assert.ok(statuses.includes(429), statuses.join());
+  });
+
   test("logging in repeatedly with the right key isn't rate limited", async () => {
     for (let attempt = 0; attempt < 8; attempt += 1) {
       const { status } = await api(ctx.base, "/v1/auth/session", { method: "POST", body: { accessKey: ACCESS_KEY } });

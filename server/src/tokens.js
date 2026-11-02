@@ -62,6 +62,13 @@ export function createTokenService({ secret, accessKeys, invites = { list: () =>
       const claims = verify(token, "session");
       return claims && knownIds().has(claims.kid) ? claims : null;
     },
+    // Admin rights are read from the current invite list on every check, so they can be granted
+    // or taken away without anyone signing in again.
+    isAdmin(claims) {
+      if (!claims) return false;
+      if (ownerKeys.some((entry) => entry.id === claims.kid)) return true;
+      return invites.list().some((invite) => inviteId(invite) === claims.kid && invite.admin === true);
+    },
     // Media tokens work in URLs because <video> can't send headers, so each one is tied to a
     // single playback session and expires. A leaked URL exposes that one stream only.
     issueMedia: (playbackId) => issue({ typ: "media", pid: playbackId }, mediaTokenTtlMs).token,

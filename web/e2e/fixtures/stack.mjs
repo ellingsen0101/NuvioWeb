@@ -5,7 +5,7 @@
 //   - a BitTorrent tracker and seeder sharing a generated test video
 //   - the production build of the frontend and the real backend from server/
 import { execFileSync, spawn } from "node:child_process";
-import { createReadStream, existsSync, mkdirSync, readFileSync, statSync } from "node:fs";
+import { createReadStream, existsSync, mkdirSync, readFileSync, rmSync, statSync } from "node:fs";
 import http from "node:http";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
@@ -330,6 +330,10 @@ async function main() {
   const { server } = createFixtureServer({ torrentHashes });
   await new Promise((resolve) => server.listen(PORTS.fixture, resolve));
 
+  // Invites and access requests start empty for each run.
+  const backendConfigDir = path.join(rootDir, ".cache", "e2e-backend-config");
+  rmSync(backendConfigDir, { recursive: true, force: true });
+  mkdirSync(backendConfigDir, { recursive: true });
   const backend = spawn(process.execPath, ["src/index.js"], {
     cwd: path.join(rootDir, "server"),
     stdio: "inherit",
@@ -338,6 +342,8 @@ async function main() {
       ACCESS_KEYS: BACKEND_KEY,
       TOKEN_SECRET: "e2e-token-secret-only-for-local-tests-0123456789",
       ALLOWED_ORIGINS: `http://localhost:${PORTS.app}`,
+      SIGN_IN_LINK_HOSTS: "nuvio.tv,localhost",
+      INVITES_FILE: path.join(rootDir, ".cache", "e2e-backend-config", "invites.json"),
       PORT: String(PORTS.backend),
       CACHE_DIR: path.join(rootDir, ".cache", "e2e-backend"),
       ALLOW_PRIVATE_PEERS: "true",

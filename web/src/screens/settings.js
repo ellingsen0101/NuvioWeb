@@ -10,11 +10,14 @@ import { MemberAccessRepository } from "../../../js/data/remote/supabase/memberA
 import { button, clear, fill, h, icon, iconButton, image, spinner, toast } from "../lib/dom.js";
 import { goBack, hrefFor, navigate } from "../lib/router.js";
 import { Backend } from "../services/backend.js";
+import { renderPeople } from "./people.js";
+import { isOwner } from "../services/requestWatch.js";
 import { getPreferredSubtitleLanguage, setPreferredSubtitleLanguage } from "../services/language.js";
 import { showLogin, switchProfile } from "../main.js";
 
 const SECTIONS = [
   { id: "account", label: "Account", iconName: "person" },
+  { id: "people", label: "People", iconName: "group", ownerOnly: true },
   { id: "addons", label: "Addons", iconName: "extension" },
   { id: "streaming", label: "Streaming backend", iconName: "dns" },
   { id: "playback", label: "Playback", iconName: "play_circle" },
@@ -325,6 +328,7 @@ function renderAbout(container) {
 
 const RENDERERS = {
   account: renderAccount,
+  people: renderPeople,
   addons: renderAddons,
   streaming: renderStreaming,
   playback: renderPlayback,
@@ -338,7 +342,7 @@ export function mountSettings(node, route) {
   const menu = h(
     "nav",
     { class: "settings-menu", "aria-label": "Settings" },
-    SECTIONS.map((entry) =>
+    SECTIONS.filter((entry) => !entry.ownerOnly || isOwner()).map((entry) =>
       h(
         "a",
         { class: `settings-link ${entry.id === sectionId ? "is-active" : ""}`, href: hrefFor("settings", [entry.id]) },

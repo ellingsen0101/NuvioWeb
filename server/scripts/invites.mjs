@@ -29,10 +29,20 @@ if (command === "add" && name) {
   }
   writeInvites(file, remaining);
   console.log(`Removed ${name}. Their sessions end immediately.`);
+} else if (command === "admin" && name) {
+  // Lets this person approve requests and remove people from the app's People screen.
+  const target = invites.find((invite) => invite.name.toLowerCase() === name.toLowerCase());
+  if (!target) {
+    console.error(`No invite named ${name}.`);
+    process.exit(1);
+  }
+  target.admin = true;
+  writeInvites(file, invites);
+  console.log(`${target.name} can now approve requests and remove people in the app.`);
 } else if (command === "list") {
   if (!invites.length) console.log("No invites yet.");
-  for (const invite of invites) console.log(`${invite.name}  (added ${invite.createdAt?.slice(0, 10) || "?"})`);
+  for (const invite of invites) console.log(`${invite.name}${invite.admin ? " [owner]" : ""}  (added ${invite.createdAt?.slice(0, 10) || "?"})`);
 } else {
-  console.log("Usage: node scripts/invites.mjs add <name> | list | remove <name>");
+  console.log("Usage: node scripts/invites.mjs add <name> | list | remove <name> | admin <name>");
   process.exit(command ? 1 : 0);
 }

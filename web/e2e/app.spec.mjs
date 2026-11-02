@@ -476,6 +476,9 @@ test.describe("all playback through the server", () => {
 });
 
 test.describe("invite-only mode", () => {
+  // The test switches invite-only mode on by rewriting nuvio.env.js, which a service worker would bypass.
+  test.use({ serviceWorkers: "block" });
+
   test.beforeEach(async ({ page }) => {
     await page.route("**/nuvio.env.js", async (route) => {
       const original = await (await route.fetch()).text();
@@ -483,12 +486,55 @@ test.describe("invite-only mode", () => {
     });
   });
 
-  test("a stranger can't get past the invite screen, and a friend's code leads to sign-in", async ({ page }) => {
+  test("a newcomer asks for access, the owner approves in the app, and the newcomer gets in without any code", async ({ page, browser, request }) => {
+    // The owner, signed in on their own device with the owner key, which makes them the admin.
+    const ownerContext = await browser.newContext();
+    const owner = await ownerContext.newPage();
+    await owner.goto("/");
+    await expect(owner.locator(".login-code")).toHaveText("ABCD-1234");
+    await fixture(request, "approve");
+    await owner.getByRole("button", { name: "Account Owner" }).click();
+    await expect(owner.locator(".nav-item.is-active:visible")).toHaveText(/Home/);
+    await connectBackend(owner);
+    await fixture(request, "reset");
+
+    // The newcomer asks.
+    await page.goto("/");
+    await expect(page.getByRole("heading", { name: "Request access" })).toBeVisible();
+    await page.getByLabel("Your name").fill("New Friend");
+    await page.getByRole("button", { name: "Request access" }).click();
+    await expect(page.getByRole("heading", { name: "Request sent" })).toBeVisible({ timeout: 15000 });
+    await expect(page.locator(".login-code")).toHaveCount(0);
+
+    // The owner approves. The fixture stands in for approving the code on Nuvio's page.
+    await owner.reload();
+    await owner.getByRole("button", { name: "Account Owner" }).click().catch(() => null);
+    await owner.goto("/#/settings/people");
+    await expect(owner.locator(".addon-row", { hasText: "New Friend" }).first()).toBeVisible({ timeout: 15000 });
+    await owner.locator(".addon-row", { hasText: "New Friend" }).getByRole("button", { name: "Approve" }).click();
+    await fixture(request, "approve");
+
+    await expect(page.getByRole("heading", { name: "Who's watching?" })).toBeVisible({ timeout: 20000 });
+    const stored = await page.evaluate(() => localStorage.getItem("webAccessRequest"));
+    expect(stored).toBeNull();
+
+    // The owner can remove them again, which sends them back to the first screen.
+    await expect(owner.locator(".addon-row", { hasText: "New Friend" }).getByRole("button", { name: "Remove" })).toBeVisible({ timeout: 20000 });
+    owner.once("dialog", (dialog) => dialog.accept());
+    await owner.locator(".addon-row", { hasText: "New Friend" }).getByRole("button", { name: "Remove" }).click();
+    await page.waitForTimeout(500);
+    await page.reload();
+    await expect(page.getByRole("heading", { name: "Request access" })).toBeVisible({ timeout: 15000 });
+    await ownerContext.close();
+  });
+
+  test("a stranger can't get past the first screen, and an invite code still works", async ({ page }) => {
     await page.goto("/#/home");
-    await expect(page.getByRole("heading", { name: "Invite only" })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Request access" })).toBeVisible();
     await expect(page.locator(".nav-bottom:visible, .nav-rail:visible")).toHaveCount(0);
     await page.goto("/#/settings/streaming");
-    await expect(page.getByRole("heading", { name: "Invite only" })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Request access" })).toBeVisible();
+    await page.getByRole("button", { name: "I have an invite code" }).click();
 
     await page.getByLabel("Invite code").fill("not-a-real-code");
     await page.getByRole("button", { name: "Continue" }).click();

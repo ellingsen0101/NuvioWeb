@@ -126,6 +126,18 @@ input:focus-visible, select:focus-visible { outline: 2px solid var(--focus-color
   min-width: 0;
 }
 .nav-item.is-active { color: var(--text-color); }
+.nav-item { position: relative; }
+.nav-item.has-badge::after {
+  content: "";
+  position: absolute;
+  top: 6px;
+  left: calc(50% + 8px);
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: var(--error-color);
+  box-shadow: 0 0 0 2px var(--bg-color);
+}
 
 .page-head {
   display: flex;

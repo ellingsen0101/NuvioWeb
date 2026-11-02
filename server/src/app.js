@@ -4,6 +4,7 @@ import http from "node:http";
 import { ApiError, createPlaybackManager } from "./playback.js";
 import { createRateLimiter, createTokenService } from "./tokens.js";
 import { createInviteStore } from "./invites.js";
+import { AccessError, createAccessStore } from "./access.js";
 import { createTorrentEngine } from "./torrentEngine.js";
 import { isToolAvailable, rewritePlaylist, supportsInputPacing } from "./media.js";
 import { UpstreamError, safeGetText } from "./netGuard.js";
@@ -14,6 +15,8 @@ const MINUTE = 60 * 1000;
 
 const LIMITS = {
   auth: { limit: 5, windowMs: MINUTE },
+  request: { limit: 3, windowMs: 10 * MINUTE },
+  requestCheck: { limit: 120, windowMs: MINUTE },
   playback: { limit: 30, windowMs: MINUTE },
   proxy: { limit: 240, windowMs: MINUTE },
   api: { limit: 600, windowMs: MINUTE },
@@ -53,6 +56,7 @@ export async function createApp(config, { logger = console, createEngine = creat
     mediaTokenTtlMs: config.mediaTokenTtlMs
   });
   const limiter = createRateLimiter();
+  const access = createAccessStore({ requestsFile: config.requestsFile, invitesFile: config.invitesFile, allowedLinkHosts: config.signInLinkHosts });
   const [ffmpeg, ffprobe] = await Promise.all([isToolAvailable(config.ffmpegPath), isToolAvailable(config.ffprobePath)]);
   const tools = { ffmpeg, ffprobe, inputPacing: ffmpeg && (await supportsInputPacing(config.ffmpegPath)) };
   if (!ffmpeg || !ffprobe) logger.warn?.("ffmpeg or ffprobe wasn't found. Only MP4 and WebM files can be streamed.");
@@ -88,7 +92,9 @@ export async function createApp(config, { logger = console, createEngine = creat
   function requireSession(request) {
     const header = String(request.headers.authorization || "");
     const token = header.startsWith("Bearer ") ? header.slice(7) : "";
-    if (!tokens.verifySession(token)) throw new ApiError(401, "UNAUTHORIZED", "Connect to the backend again.");
+    const claims = tokens.verifySession(token);
+    if (!claims) throw new ApiError(401, "UNAUTHORIZED", "Connect to the backend again.");
+    return claims;
   }
 
   function requireMediaToken(url, playbackId) {
@@ -102,8 +108,8 @@ export async function createApp(config, { logger = console, createEngine = creat
     response.setHeader("Vary", "Origin");
     if (origin && config.allowedOrigins.includes(origin)) {
       response.setHeader("Access-Control-Allow-Origin", origin);
-      response.setHeader("Access-Control-Allow-Headers", "Authorization, Content-Type, Range");
-      response.setHeader("Access-Control-Allow-Methods", "GET, HEAD, POST, DELETE, OPTIONS");
+      response.setHeader("Access-Control-Allow-Headers", "Authorization, Content-Type, Range, X-Request-Token");
+      response.setHeader("Access-Control-Allow-Methods", "GET, HEAD, POST, PUT, DELETE, OPTIONS");
       response.setHeader("Access-Control-Expose-Headers", "Content-Length, Content-Range, Accept-Ranges");
       response.setHeader("Access-Control-Max-Age", "600");
     }
@@ -206,9 +212,67 @@ export async function createApp(config, { logger = console, createEngine = creat
       return;
     }
 
+    // Asking for access needs no account. Each request gets its own secret for checking on it.
+    if (method === "POST" && pathname === "/v1/access/requests") {
+      rateLimit(request, "request");
+      const body = await readJson(request);
+      const created = access.create({ name: body.name, signInCode: body.signInCode, signInLink: body.signInLink });
+      logger.info?.("Access requested");
+      json(response, 201, created);
+      return;
+    }
+    const requestMatch = /^\/v1\/access\/requests\/([0-9a-f-]{36})$/.exec(pathname);
+    if (requestMatch && (method === "GET" || method === "PUT")) {
+      rateLimit(request, "requestCheck");
+      const pollToken = request.headers["x-request-token"] || "";
+      if (method === "GET") json(response, 200, access.check(requestMatch[1], pollToken));
+      else {
+        access.updateSignIn(requestMatch[1], pollToken, await readJson(request));
+        json(response, 200, { ok: true });
+      }
+      return;
+    }
+
     if (!pathname.startsWith("/v1/")) throw new ApiError(404, "NOT_FOUND", "Not found.");
-    requireSession(request);
+    const claims = requireSession(request);
     rateLimit(request, "api");
+
+    if (pathname.startsWith("/v1/admin/")) {
+      if (!tokens.isAdmin(claims)) throw new ApiError(403, "NOT_ADMIN", "Only the owner can do this.");
+      if (method === "GET" && pathname === "/v1/admin/requests") {
+        json(response, 200, { requests: access.listPending() });
+        return;
+      }
+      const decision = /^\/v1\/admin\/requests\/([0-9a-f-]{36})\/(approve|decline)$/.exec(pathname);
+      if (method === "POST" && decision) {
+        if (decision[2] === "approve") {
+          const approved = access.approve(decision[1]);
+          logger.info?.(`Access approved: ${approved.name}`);
+          json(response, 200, approved);
+        } else {
+          access.decline(decision[1]);
+          json(response, 200, { ok: true });
+        }
+        return;
+      }
+      if (method === "GET" && pathname === "/v1/admin/people") {
+        json(response, 200, { people: access.listPeople() });
+        return;
+      }
+      const person = /^\/v1\/admin\/people\/(.+)$/.exec(pathname);
+      if (method === "DELETE" && person) {
+        access.removePerson(decodeURIComponent(person[1]));
+        logger.info?.("Access removed");
+        response.writeHead(204).end();
+        return;
+      }
+      throw new ApiError(404, "NOT_FOUND", "Not found.");
+    }
+
+    if (method === "GET" && pathname === "/v1/me") {
+      json(response, 200, { name: claims.who || "", admin: tokens.isAdmin(claims) });
+      return;
+    }
 
     if (method === "GET" && pathname === "/v1/capabilities") {
       json(response, 200, {
@@ -274,8 +338,8 @@ export async function createApp(config, { logger = console, createEngine = creat
     try {
       await route(request, response, url);
     } catch (error) {
-      const status = error instanceof ApiError ? error.status : error instanceof UpstreamError ? (error.code === "BLOCKED_ADDRESS" || error.code === "INVALID_URL" ? 400 : 502) : error.status || 500;
-      const known = error instanceof ApiError || error instanceof UpstreamError || error.status;
+      const status = error instanceof ApiError || error instanceof AccessError ? error.status : error instanceof UpstreamError ? (error.code === "BLOCKED_ADDRESS" || error.code === "INVALID_URL" ? 400 : 502) : error.status || 500;
+      const known = error instanceof ApiError || error instanceof AccessError || error instanceof UpstreamError || error.status;
       if (!known) logger.error?.(`Unhandled error on ${request.method} ${url.pathname}: ${error.message}`);
       if (response.headersSent) {
         response.destroy();

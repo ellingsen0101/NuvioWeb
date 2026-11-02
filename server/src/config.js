@@ -72,6 +72,8 @@ export function loadConfig(env = process.env) {
     // Addons that hand out debrid links can take a long time on the first request.
     sourceTimeoutMs: integer(env, "SOURCE_TIMEOUT_SECONDS", 60) * 1000,
     proxyMaxBytes: integer(env, "PROXY_MAX_MB", 8) * 1024 * 1024,
-    invitesFile: env.INVITES_FILE || fileURLToPath(new URL("../invites.json", import.meta.url))
+    invitesFile: env.INVITES_FILE || fileURLToPath(new URL("../invites.json", import.meta.url)),
+    requestsFile: env.REQUESTS_FILE || path.join(path.dirname(env.INVITES_FILE || fileURLToPath(new URL("../invites.json", import.meta.url))), "requests.json"),
+    signInLinkHosts: list(env, "SIGN_IN_LINK_HOSTS").length ? list(env, "SIGN_IN_LINK_HOSTS") : ["nuvio.tv"]
   };
 }

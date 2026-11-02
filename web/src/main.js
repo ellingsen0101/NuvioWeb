@@ -23,6 +23,7 @@ import { mountSettings } from "./screens/settings.js";
 import { mountPlayer } from "./player/player.js";
 import { mountInvite } from "./screens/invite.js";
 import { Backend } from "./services/backend.js";
+import { startRequestWatch } from "./services/requestWatch.js";
 
 const GUEST_KEY = "skipAuthQrGate"; // Same key as the TV app.
 const NAV_ITEMS = [
@@ -142,6 +143,7 @@ export async function enterApp(profileId = null) {
     console.warn("Profile sync failed", error);
   });
   await waitForFirstSync(id, syncing);
+  await startRequestWatch();
   enterGate("app");
 }
 
@@ -260,7 +262,11 @@ async function boot() {
 
   registerServiceWorker();
   if (INVITE_REQUIRED) {
-    // A revoked or expired code sends the person back to the invite screen.
+    // A saved session can belong to someone who has since been removed, so it's checked with the
+    // server on every launch. A 401 clears it. Being offline doesn't.
+    if (Backend.isConnected()) await Backend.me().catch(() => null);
+    if (!Backend.isConnected()) await Backend.renewSession();
+    // Removed while using the app: the next server call fails and returns them to the first screen.
     window.addEventListener("nuvio:backend-signed-out", () => location.reload());
     if (!Backend.isConnected()) {
       gate = "invite";
