@@ -95,18 +95,34 @@ function renderDeviceCode(panel, isActive) {
 
     const loginUrl = safeLinkUrl(session.loginUrl);
     const status = h("p", { class: "login-status", role: "status" }, "Waiting for approval…");
+    // Approving happens on Nuvio's own website, which then shows its account page rather than sending
+    // people back here. The steps say so, because that page looks like a destination.
     fill(panel,
-      qrcode ? h("div", { class: "login-qr-wrap" }, qrImage(qrcode, session.loginUrl)) : null,
-      h("p", { class: "login-hint" }, "Scan with another device, or open the sign-in page on this one. It's on Nuvio's website, so come back to this app after you approve."),
       h("div", { class: "login-code", "aria-label": "Sign-in code" }, session.displayCode),
+      h(
+        "ol",
+        { class: "login-steps" },
+        h("li", {}, "Tap ", h("strong", {}, "Approve on Nuvio"), " and sign in to your Nuvio account."),
+        h("li", {}, "Approve the code above."),
+        h("li", {}, "Nuvio's site then shows your account page. ", h("strong", {}, "Come back to this app"), ". It continues by itself.")
+      ),
       loginUrl
         ? h(
             "a",
             { class: "btn btn-primary", href: loginUrl, target: "_blank", rel: "noopener noreferrer" },
-            "Open sign-in page"
+            "Approve on Nuvio"
           )
         : null,
-      status
+      status,
+      qrcode
+        ? h(
+            "details",
+            { class: "login-qr-details" },
+            h("summary", {}, "Use another device instead"),
+            h("div", { class: "login-qr-wrap" }, qrImage(qrcode, session.loginUrl)),
+            h("p", { class: "login-hint" }, "Scan this with a phone or tablet that's signed in to Nuvio.")
+          )
+        : null
     );
 
     let polling = false;

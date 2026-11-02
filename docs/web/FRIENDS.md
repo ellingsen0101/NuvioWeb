@@ -4,9 +4,10 @@ You need: an iPhone with Safari, a Nuvio account, and the invite code you were s
 
 1. Open the Nuvio Web link in **Safari**.
 2. Enter your **invite code** when asked. You only do this once on this phone.
-3. **Sign in to Nuvio.** Tap **Open sign-in page**, sign in on Nuvio's website and approve the code, then
-   come back to Nuvio Web. It continues on its own within a few seconds. You can also scan the QR code with
-   another device.
+3. **Sign in to Nuvio.** Tap **Approve on Nuvio**, sign in on Nuvio's website, and approve the code.
+   Nuvio's site then shows your account page, with profiles and addons. That page isn't the app:
+   **switch back to Nuvio Web** (swipe up from the bottom, or use the app switcher). It shows
+   **Who's watching?** within a few seconds.
 4. Pick your profile. Your addons, library and progress are the ones on your own Nuvio account.
 5. Tap **Share**, then **Add to Home Screen**, so Nuvio opens like an app.
 
