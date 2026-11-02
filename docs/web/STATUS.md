@@ -15,7 +15,7 @@ those. Everything else marked Tested ran in Edge or in Playwright's WebKit on Wi
 
 | Item | What's missing |
 | --- | --- |
-| **Always-on hosting** | Runs on the owner's PC through Tailscale. The auto-start task is written but not installed, so it currently stops with the PC or the Claude app |
+| **Public deployment** | Live: website on GitHub Pages (invite-only), backend on a Hetzner server in Helsinki (1 vCPU, 0.9 GB). Friend path tested from this PC up to Nuvio sign-in. **Not yet tested by a friend or from the owner's iPhone on the new site** |
 | **Torrents** | Implemented and tested, but switched off on the owner's PC, because the home IP address would be visible in swarms. Needs a decision: a VPS, a VPN, or leaving them off |
 
 ## Feature status
