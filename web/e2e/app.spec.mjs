@@ -393,7 +393,7 @@ test.describe("playback through the backend", () => {
     await expect(page.locator(".player-time").last()).toHaveText("1:30");
 
     await page.getByRole("button", { name: "Playback details" }).click({ force: true });
-    await expect(page.locator(".details-list")).toContainText("Converted by backend");
+    await expect(page.locator(".details-list")).toContainText("Converted by server");
     await expect(page.locator(".details-list")).toContainText("h264");
     await page.locator(".sheet-head .icon-btn").click();
 
@@ -446,6 +446,32 @@ test.describe("playback through the backend", () => {
     await page.goto("/#/home");
     await deleted;
     void request;
+  });
+});
+
+test.describe("all playback through the server", () => {
+  test.beforeEach(async ({ page, request }) => {
+    await page.route("**/nuvio.env.js", async (route) => {
+      const original = await (await route.fetch()).text();
+      await route.fulfill({ contentType: "text/javascript", body: `${original}\nglobalThis.__NUVIO_ENV__.NUVIO_STREAM_VIA_BACKEND = "true";` });
+    });
+    await signIn(page, request);
+    await enterProfile(page);
+    await connectBackend(page);
+  });
+
+  test("a directly playable MP4 still streams from the server, not from the source", async ({ page }) => {
+    await openStream(page, "e2e-movie-0");
+    await expectPlaying(page);
+    const src = await page.locator(".player-video").evaluate((video) => video.currentSrc);
+    expect(src).toContain(`${BACKEND}/v1/media/`);
+    await page.locator(".player-video").evaluate((video) => { video.currentTime = 50; });
+    await expectPlaying(page, { atLeast: 50.5 });
+  });
+
+  test("HLS sources are left direct", async ({ page }) => {
+    await openStream(page, "e2e-movie-1");
+    await expectPlaying(page);
   });
 });
 

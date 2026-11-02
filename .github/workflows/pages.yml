@@ -35,6 +35,7 @@ jobs:
           DEVICE_LOGIN_WEB_BASE_URL: ${{ vars.DEVICE_LOGIN_WEB_BASE_URL }}
           NUVIO_BACKEND_URL: ${{ vars.NUVIO_BACKEND_URL }}
           NUVIO_REQUIRE_INVITE: ${{ vars.NUVIO_REQUIRE_INVITE }}
+          NUVIO_STREAM_VIA_BACKEND: ${{ vars.NUVIO_STREAM_VIA_BACKEND }}
           NUVIO_WEB_SOURCE_URL: ${{ github.server_url }}/${{ github.repository }}
       - uses: actions/upload-pages-artifact@v3
         with:

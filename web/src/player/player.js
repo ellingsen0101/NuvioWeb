@@ -15,6 +15,9 @@ const CONTROLS_HIDE_MS = 3500;
 const PROGRESS_SAVE_MS = 15000;
 const STATUS_POLL_MS = 500;
 const SEEK_STEP_S = 10;
+// Set by deployments shared with friends. Every web source then streams through the backend, so a
+// debrid service sees one address instead of one per viewer, which can look like account sharing.
+const STREAM_VIA_BACKEND = /^(1|true|yes)$/i.test(String(globalThis.__NUVIO_ENV__?.NUVIO_STREAM_VIA_BACKEND || ""));
 const AUTO_SUBTITLE_ATTEMPTS = 4;
 const SPEEDS = [0.5, 0.75, 1, 1.25, 1.5, 2];
 
@@ -640,7 +643,7 @@ export function mountPlayer(node, route) {
 
   function openDetails() {
     const rows = [
-      ["Delivery", isBackendHls ? "Converted by backend (HLS)" : playbackId ? "Through backend, not converted" : "Direct from source"],
+      ["Delivery", isBackendHls ? "Converted by server (HLS)" : playbackId ? "Through server, not converted" : "Direct from source"],
       ["Video size", video.videoWidth ? `${video.videoWidth}×${video.videoHeight}` : "No picture"],
       ["Codec", sourceInfo ? `${sourceInfo.videoCodec}${sourceInfo.videoTag ? ` (${sourceInfo.videoTag})` : ""}` : "Not checked"],
       ["Container", sourceInfo?.container || "Not checked"],
@@ -739,7 +742,7 @@ export function mountPlayer(node, route) {
     if (playingAudio?.language && !matchesLanguage(playingAudio, "en")) {
       toast(`This source has no English audio. Playing ${languageName(playingAudio.language)}.`);
     }
-    if (ready.mode === "direct" && ready.sourceUrl) {
+    if (ready.mode === "direct" && ready.sourceUrl && !STREAM_VIA_BACKEND) {
       // Nothing to convert, so the video doesn't need to pass through the backend.
       const finished = playbackId;
       playbackId = null;
@@ -770,7 +773,9 @@ export function mountPlayer(node, route) {
       // Apple's players show no picture for some MP4s and give no error. A quick check by the backend
       // avoids a black screen, and playback still goes straight to the source when the file is fine.
       const checkFirst = usesNativeHls(video) && Backend.isConnected() && (sourceKind === "direct" || sourceKind === "unknown");
-      const needsBackend = sourceKind === "torrent" || sourceKind === "server" || triedBackendFallback || checkFirst;
+      // HLS sources stay direct: the backend can't proxy a playlist's segments, and they rarely come from debrid.
+      const routed = STREAM_VIA_BACKEND && Backend.isConnected() && /^https?:/i.test(activeStream.url || "") && sourceKind !== "hls";
+      const needsBackend = sourceKind === "torrent" || sourceKind === "server" || triedBackendFallback || checkFirst || routed;
       if (needsBackend) {
         if (!Backend.isConnected()) {
           showError("This source needs your streaming backend. Connect it in Settings, then try again.", { retry: false });
