@@ -72,15 +72,28 @@ function decode(buffer) {
   return utf8.includes("�") ? new TextDecoder("windows-1252").decode(buffer) : utf8;
 }
 
+const SUBTITLE_FETCH_TIMEOUT_MS = 12000;
+
+// Some subtitle hosts are slow, and a request that never finishes would stall the automatic choice.
+function withTimeout(signal) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(new DOMException("Subtitle download timed out", "TimeoutError")), SUBTITLE_FETCH_TIMEOUT_MS);
+  signal?.addEventListener("abort", () => controller.abort(signal.reason), { once: true });
+  return { signal: controller.signal, done: () => clearTimeout(timer) };
+}
+
 export async function loadSubtitleCues(url, { signal } = {}) {
   let text;
+  const timed = withTimeout(signal);
   try {
-    const response = await fetch(url, { signal, credentials: "omit" });
+    const response = await fetch(url, { signal: timed.signal, credentials: "omit" });
     if (!response.ok) throw new Error(`HTTP ${response.status}`);
     text = decode(await response.arrayBuffer());
   } catch (error) {
-    if (error?.name === "AbortError" || !Backend.isConnected()) throw error;
+    if (signal?.aborted || !Backend.isConnected()) throw error;
     text = await Backend.proxyText(url, { kind: "subtitle", signal });
+  } finally {
+    timed.done();
   }
   const cues = parseSubtitles(text);
   if (!cues.length) throw new Error("This subtitle file has no readable cues");

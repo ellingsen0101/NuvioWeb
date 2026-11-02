@@ -333,6 +333,31 @@ test.describe("playback", () => {
     await expect(page.locator(".player-sub-line")).toHaveText("Nuvio test subtitle line");
   });
 
+  test("a subtitle track built into the video is preferred, and shown through the app", async ({ page }) => {
+    await openStream(page, "e2e-movie-0");
+    await expectPlaying(page, { atLeast: 0.2 });
+    // Edge doesn't expose an MP4's own text tracks, so one is added the way iOS adds them.
+    await page.locator(".player-video").evaluate((video) => {
+      const track = video.addTextTrack("subtitles", "English", "en");
+      track.addCue(new VTTCue(0, 600, "Built into the file"));
+      track.mode = "showing";
+    });
+    await expect(page.locator(".player-sub-line")).toHaveText("Built into the file", { timeout: 10000 });
+    const ownTrackMode = await page.locator(".player-video").evaluate((video) => [...video.textTracks].find((track) => track.label === "English").mode);
+    expect(ownTrackMode, "the app draws it, so the browser must not draw it too").toBe("hidden");
+    await page.getByRole("button", { name: "Playback details" }).click({ force: true });
+    await expect(page.locator(".details-list")).toContainText("built into the video");
+  });
+
+  test("the next best match is one tap away", async ({ page }) => {
+    await openStream(page, "e2e-movie-0");
+    await expectPlaying(page, { atLeast: 0.2 });
+    await expect(page.locator(".player-sub-line")).toHaveText("Nuvio test subtitle line", { timeout: 10000 });
+    await page.getByRole("button", { name: "Subtitles" }).click({ force: true });
+    await page.getByRole("button", { name: /Try the next best match/ }).click();
+    await expect(page.locator(".player-sub-line")).toHaveText("Nuvio test wrong release line", { timeout: 10000 });
+  });
+
   test("an unplayable source shows a useful error", async ({ page }) => {
     await page.route("**/media/direct.mp4", (route) => route.fulfill({ status: 200, contentType: "video/mp4", body: "not a video" }));
     await openStream(page, "e2e-movie-0");

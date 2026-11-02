@@ -67,6 +67,8 @@ export function mountPlayer(node, route) {
   let sourceInfo = null;
   let lastError = "";
   let subtitleChosenByHand = false;
+  let fileTrack = null;
+  let subtitleStatus = "Looking for subtitles…";
   let statusTimer = 0;
   let pictureTimer = 0;
   let wakeLock = null;
@@ -270,18 +272,67 @@ export function mountPlayer(node, route) {
     renderSubtitle(current);
   }
 
+  function showSubtitleText(text) {
+    if (subtitleLayer.dataset.text === text) return;
+    subtitleLayer.dataset.text = text;
+    clear(subtitleLayer);
+    if (text) subtitleLayer.append(h("span", { class: "player-sub-line" }, text));
+  }
+
   function renderSubtitle(current) {
+    // A track built into the file is timed by the player itself, through cuechange.
+    if (fileTrack) return;
     if (!cues.length) {
-      if (subtitleLayer.childElementCount) clear(subtitleLayer);
+      showSubtitleText("");
       return;
     }
-    const active = cueAt(cues, current - subtitleDelayS);
-    const text = active.map((cue) => cue.text).join("\n");
-    if (subtitleLayer.dataset.text !== text) {
-      subtitleLayer.dataset.text = text;
-      clear(subtitleLayer);
-      if (text) subtitleLayer.append(h("span", { class: "player-sub-line" }, text));
-    }
+    showSubtitleText(cueAt(cues, current - subtitleDelayS).map((cue) => cue.text).join("\n"));
+  }
+
+  // Subtitle tracks inside the video file, which iOS exposes for MP4s. They're made for exactly this
+  // file, so they're preferred when they're in the right language. iOS may also show them on its own,
+  // so every one that isn't chosen is turned off.
+  function fileTextTracks() {
+    return Array.from(video.textTracks || []).filter(
+      (track) => track !== nativeTrack && ["subtitles", "captions", "forced"].includes(track.kind)
+    );
+  }
+
+  function fileTrackOptions() {
+    return fileTextTracks().map((track, index) => ({
+      fileTrack: track,
+      url: `file-track:${index}`,
+      label: track.language ? languageName(track.language) : track.label || `Track ${index + 1}`,
+      detail: "Built into the video",
+      lang: track.language || ""
+    }));
+  }
+
+  function onFileCueChange() {
+    if (!fileTrack) return;
+    const text = Array.from(fileTrack.activeCues || [])
+      .map((cue) => String(cue.text || "").replace(/<[^>]+>/g, ""))
+      .join("\n");
+    showSubtitleText(text);
+  }
+
+  function releaseFileTrack() {
+    if (!fileTrack) return;
+    fileTrack.removeEventListener("cuechange", onFileCueChange);
+    fileTrack.mode = "disabled";
+    fileTrack = null;
+  }
+
+  function considerFileTracks() {
+    const options = fileTrackOptions();
+    fileTextTracks().forEach((track) => {
+      if (track !== fileTrack) track.mode = "disabled";
+    });
+    if (!options.length) return;
+    subtitleOptions = [...options, ...subtitleOptions.filter((option) => !option.fileTrack)];
+    const preferred = getPreferredSubtitleLanguage();
+    const match = preferred !== "off" && options.find((option) => matchesLanguage(option, preferred));
+    if (match && !subtitleChosenByHand && !fileTrack) applySubtitle(match, []);
   }
 
   // Native fullscreen on iPhone can only show real text tracks, so cues are mirrored into one.
@@ -356,9 +407,16 @@ export function mountPlayer(node, route) {
   }
 
   function applySubtitle(option, loaded) {
-    cues = loaded;
+    releaseFileTrack();
+    cues = option?.fileTrack ? [] : loaded;
     selectedSubtitle = option;
     subtitleLayer.dataset.text = "";
+    if (option?.fileTrack) {
+      fileTrack = option.fileTrack;
+      fileTrack.mode = video.webkitDisplayingFullscreen ? "showing" : "hidden";
+      fileTrack.addEventListener("cuechange", onFileCueChange);
+      onFileCueChange();
+    }
     syncNativeTrack();
     renderTimeline();
   }
@@ -385,7 +443,7 @@ export function mountPlayer(node, route) {
         if (error?.name === "AbortError") return;
         continue;
       }
-      if (disposed || subtitleChosenByHand) return;
+      if (disposed || subtitleChosenByHand || fileTrack) return;
       fallback ||= { option, loaded };
       if (!selectedSubtitle) applySubtitle(option, loaded);
       if (subtitleFitsVideo(loaded, await waitForDuration())) {
@@ -393,16 +451,22 @@ export function mountPlayer(node, route) {
         return;
       }
     }
-    if (fallback && !disposed && !subtitleChosenByHand) applySubtitle(fallback.option, fallback.loaded);
+    if (fallback && !disposed && !subtitleChosenByHand && !fileTrack) applySubtitle(fallback.option, fallback.loaded);
+    if (!fallback) subtitleStatus = "None of the best matches would load";
   }
 
   async function selectSubtitle(option) {
     subtitleChosenByHand = true;
     if (!option?.url) {
+      releaseFileTrack();
       selectedSubtitle = null;
       cues = [];
       syncNativeTrack();
       renderTimeline();
+      return;
+    }
+    if (option.fileTrack) {
+      applySubtitle(option, []);
       return;
     }
     try {
@@ -424,14 +488,26 @@ export function mountPlayer(node, route) {
       syncNativeTrack();
       renderTimeline();
     };
-    const delayControls = h(
-      "div",
-      { class: "delay-row" },
-      h("span", {}, "Timing"),
-      iconButton("remove", "Show subtitles earlier", () => adjust(-0.5)),
-      delayLabel,
-      iconButton("add", "Show subtitles later", () => adjust(0.5))
-    );
+    // Built-in subtitles are timed by the player, so only addon subtitles can be shifted.
+    const delayControls = fileTrack
+      ? h("p", { class: "muted delay-row" }, "These subtitles are built into the video, so they're timed for it.")
+      : h(
+          "div",
+          { class: "delay-row" },
+          h("span", {}, "Timing"),
+          iconButton("remove", "Show subtitles earlier", () => adjust(-0.5)),
+          delayLabel,
+          iconButton("add", "Show subtitles later", () => adjust(0.5))
+        );
+    const sameLanguage = subtitleOptions.filter((option) => !option.fileTrack && matchesLanguage(option, selectedSubtitle?.lang ? String(selectedSubtitle.lang).slice(0, 2).toLowerCase() : "en"));
+    const next = selectedSubtitle && !fileTrack ? sameLanguage[sameLanguage.findIndex((option) => option.url === selectedSubtitle.url) + 1] : null;
+    const nextMatch = next
+      ? button("Out of sync? Try the next best match", () => {
+          document.querySelector(".player-root .sheet-backdrop")?.remove();
+          document.documentElement.classList.remove("sheet-open");
+          selectSubtitle(next);
+        }, { kind: "secondary", iconName: "swap_horiz" })
+      : null;
     picker(
       "Subtitles",
       [
@@ -439,7 +515,7 @@ export function mountPlayer(node, route) {
         ...subtitleOptions.map((option) => ({ ...option, active: selectedSubtitle?.url === option.url }))
       ],
       selectSubtitle,
-      delayControls
+      h("div", { class: "stack" }, delayControls, nextMatch)
     );
   }
 
@@ -570,7 +646,8 @@ export function mountPlayer(node, route) {
       ["Container", sourceInfo?.container || "Not checked"],
       ["Time to start", startupMs ? `${(startupMs / 1000).toFixed(1)} s` : "Not started"],
       ["Timeline offset", `${timeOffset.toFixed(1)} s`],
-      ["Subtitles", selectedSubtitle ? `${selectedSubtitle.label}, ${cues.length} lines, ${subtitleDelayS.toFixed(1)} s timing` : "Off"],
+      ["Subtitles", selectedSubtitle ? (fileTrack ? `${selectedSubtitle.label}, built into the video` : `${selectedSubtitle.label}, ${cues.length} lines, ${subtitleDelayS.toFixed(1)} s timing`) : subtitleStatus],
+      ["Tracks built into the video", String(fileTextTracks().length)],
       ["Subtitle release", selectedSubtitle?.title || selectedSubtitle?.detail || "Unknown"],
       ["Exact file match", selectedSubtitle ? (selectedSubtitle.moviehash && stream.behaviorHints?.videoHash && String(selectedSubtitle.moviehash).toLowerCase() === String(stream.behaviorHints.videoHash).toLowerCase() ? "Yes" : "No") : "Not applicable"],
       ["Last subtitle line", cues.length ? `${formatDuration(cues[cues.length - 1].end * 1000)} of ${formatDuration(duration() * 1000)}` : "None"],
@@ -750,7 +827,9 @@ export function mountPlayer(node, route) {
     const language = preferred === "off" ? "en" : preferred;
     const file = { filename: stream.behaviorHints?.filename, videoHash: stream.behaviorHints?.videoHash };
     subtitleOptions = sortSubtitlesByLanguage(rankSubtitles(subtitleOptions, file), language);
-    if (preferred !== "off" && !subtitleChosenByHand) {
+    subtitleOptions = [...fileTrackOptions(), ...subtitleOptions];
+    if (!subtitleOptions.some((option) => matchesLanguage(option, language))) subtitleStatus = `No ${languageName(language)} subtitles found`;
+    if (preferred !== "off" && !subtitleChosenByHand && !fileTrack) {
       autoSelectSubtitle(subtitleOptions.filter((option) => matchesLanguage(option, language)));
     }
   }
@@ -758,6 +837,7 @@ export function mountPlayer(node, route) {
   // Events
   const listeners = [
     ["loadedmetadata", () => {
+      considerFileTracks();
       // A file with several audio tracks, played directly by the browser, starts on its first one.
       const english = !isBackendHls && pickEnglishAudio(engine.audioTracks());
       if (english && !english.active) engine.selectAudio(english.id);
@@ -815,10 +895,19 @@ export function mountPlayer(node, route) {
       }
       showError(describeMediaError(video, { backendConnected: Backend.isConnected(), viaBackend: Boolean(playbackId) }));
     }],
-    ["webkitbeginfullscreen", () => { if (nativeTrack) nativeTrack.mode = "showing"; }],
-    ["webkitendfullscreen", () => { if (nativeTrack) nativeTrack.mode = "hidden"; }]
+    ["webkitbeginfullscreen", () => {
+      if (fileTrack) fileTrack.mode = "showing";
+      else if (nativeTrack) nativeTrack.mode = "showing";
+    }],
+    ["webkitendfullscreen", () => {
+      if (fileTrack) fileTrack.mode = "hidden";
+      if (nativeTrack) nativeTrack.mode = "hidden";
+    }]
   ];
   listeners.forEach(([type, handler]) => video.addEventListener(type, handler));
+  // iOS adds an MP4's own text tracks as it reads the file, sometimes after metadata.
+  const onTrackAdded = () => considerFileTracks();
+  video.textTracks?.addEventListener?.("addtrack", onTrackAdded);
 
   scrubber.addEventListener("input", () => {
     scrubbing = true;
@@ -907,6 +996,8 @@ export function mountPlayer(node, route) {
     clearTimeout(statusTimer);
     clearTimeout(pictureTimer);
     listeners.forEach(([type, handler]) => video.removeEventListener(type, handler));
+    video.textTracks?.removeEventListener?.("addtrack", onTrackAdded);
+    releaseFileTrack();
     document.removeEventListener("keydown", onKey);
     window.removeEventListener("pagehide", onPageHide);
     document.removeEventListener("visibilitychange", onVisibility);
