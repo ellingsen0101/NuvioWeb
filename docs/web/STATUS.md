@@ -6,16 +6,17 @@ What each word means here:
 - **Stand-in**: tested only against this project's mock account server or test addon.
 - **Not verified**: written, but never run in the environment that matters.
 
-**Real iPhone testing has started.** So far on one iPhone: sign-in and backend connection
-work. Playback results are in "Real sources" below. Everything else marked Tested ran in Edge or in Playwright's
-WebKit on Windows, which check scripts and layout but not iOS playback, safe areas or Home Screen behaviour.
+**Verified on one real iPhone** (the account owner's, on home Wi-Fi, through Tailscale): Home Screen install and
+launch, sign-in with a real account, profiles, connecting the backend, playback of Direct and converted sources with
+subtitles in time, fullscreen and rotation, and progress saving to the account. Rows marked **iPhone** below are
+those. Everything else marked Tested ran in Edge or in Playwright's WebKit on Windows.
 
 ## Blocked: needs a decision or something from you
 
 | Item | What's missing |
 | --- | --- |
-| **Real iPhone testing** | Needs an HTTPS deployment and your phone. |
-| **Production deployment** | Needs a static host, plus a VPS or home server for the backend. |
+| **Always-on hosting** | Runs on the owner's PC through Tailscale. The auto-start task is written but not installed, so it currently stops with the PC or the Claude app |
+| **Torrents** | Implemented and tested, but switched off on the owner's PC, because the home IP address would be visible in swarms. Needs a decision: a VPS, a VPN, or leaving them off |
 
 ## Feature status
 
@@ -23,7 +24,8 @@ WebKit on Windows, which check scripts and layout but not iOS playback, safe are
 | --- | --- | --- |
 | Device-code sign-in against the official server | **Tested with a real account** | Start, poll, approval and token exchange all worked, from `http://localhost:5173` only. A deployed domain hasn't been tried. |
 | Reading a real account: profiles, addons, library, progress, settings | **Tested with a real account** | 2 profiles, 5 addons, Continue Watching and the resume position loaded |
-| Writing to a real account | Not verified | Only tested on the mock. The real-account check blocked writes on purpose, and none were attempted. |
+| Writing to a real account: watch progress | **iPhone** | Resume position saved and shown again |
+| Writing to a real account: library, watched marks, profiles | Not verified on a real account | Tested on the mock only |
 | Session refresh, expiry, sign-out | Stand-in | Mock server, using upstream's unchanged `AuthManager` |
 | Profiles: list, choose, add | Stand-in | Sync push checked |
 | Profiles: edit, delete, PIN | Not verified | Written, with no test yet |
@@ -41,12 +43,13 @@ WebKit on Windows, which check scripts and layout but not iOS playback, safe are
 | MKV remux to HLS, seeking past converted part | Tested in Edge | |
 | Audio track listing | Tested for remuxed streams | Switching tracks is not verified |
 | Subtitles from addons, timing control | Tested | Live OpenSubtitles addon not exercised |
-| Fullscreen, landscape, PiP, wake lock | Not verified | Depends on device behaviour |
-| iPhone native fullscreen with subtitles | Not verified | |
+| Fullscreen and rotation | **iPhone** | |
+| Picture in picture, wake lock | Not verified | |
+| iPhone fullscreen with subtitles | **iPhone** | |
 | Picture-in-picture | Not verified | |
 | Debrid (direct link resolving) | Not verified | Wired to upstream's resolver. Needs a provider account, and provider CORS is unknown |
 | PWA manifest, icons, service worker, offline shell | Tested in Edge | |
-| Add to Home Screen on iOS | Not verified | |
+| Add to Home Screen on iOS, standalone launch | **iPhone** | |
 | Phone and desktop layouts | Tested | No sideways scrolling on main screens |
 | Accent themes | Tested | Upstream's theme system |
 
