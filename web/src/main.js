@@ -21,6 +21,8 @@ import { mountLibrary } from "./screens/library.js";
 import { mountDetail } from "./screens/detail.js";
 import { mountSettings } from "./screens/settings.js";
 import { mountPlayer } from "./player/player.js";
+import { mountInvite } from "./screens/invite.js";
+import { Backend } from "./services/backend.js";
 
 const GUEST_KEY = "skipAuthQrGate"; // Same key as the TV app.
 const NAV_ITEMS = [
@@ -31,7 +33,9 @@ const NAV_ITEMS = [
 ];
 const INITIAL_SYNC_KEY = "webInitialSyncProfiles";
 const INITIAL_SYNC_WAIT_MS = 8000;
-const FULLSCREEN_ROUTES = new Set(["login", "server", "profiles", "player"]);
+const FULLSCREEN_ROUTES = new Set(["invite", "login", "server", "profiles", "player"]);
+// A deployment shared with friends asks for an invite code before anything else.
+const INVITE_REQUIRED = /^(1|true|yes)$/i.test(String(globalThis.__NUVIO_ENV__?.NUVIO_REQUIRE_INVITE || ""));
 
 // "loading" until auth settles, then login -> profiles -> app.
 let gate = "loading";
@@ -39,9 +43,10 @@ let profileEntered = false;
 let router = null;
 let navItems = [];
 let launchHash = null;
+let acceptInvite = null;
 
 function isGateRoute(name) {
-  return ["login", "server", "profiles"].includes(name);
+  return ["invite", "login", "server", "profiles"].includes(name);
 }
 
 function renderShell() {
@@ -240,9 +245,11 @@ async function boot() {
       library: mountLibrary,
       detail: mountDetail,
       settings: mountSettings,
-      player: mountPlayer
+      player: mountPlayer,
+      invite: (node, route) => mountInvite(node, route, { onAccepted: () => acceptInvite?.() })
     },
     guard(route) {
+      if (gate === "invite") return route.name === "invite" ? null : "invite";
       if (gate === "login") return route.name === "login" || route.name === "server" ? null : "login";
       if (gate === "profiles") return route.name === "profiles" ? null : "profiles";
       if (gate === "app" && (route.name === "login" || route.name === "server")) return "home";
@@ -251,9 +258,22 @@ async function boot() {
     onChange: syncChrome
   });
 
+  registerServiceWorker();
+  if (INVITE_REQUIRED) {
+    // A revoked or expired code sends the person back to the invite screen.
+    window.addEventListener("nuvio:backend-signed-out", () => location.reload());
+    if (!Backend.isConnected()) {
+      gate = "invite";
+      navigate("invite", [], null, { replace: true });
+      router.render();
+      await new Promise((resolve) => {
+        acceptInvite = resolve;
+      });
+      gate = "loading";
+    }
+  }
   DeviceSessionRegistration.start?.();
   refreshOnForeground();
-  registerServiceWorker();
   AuthManager.subscribe(onAuthState);
   await AuthManager.bootstrap();
 }

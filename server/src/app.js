@@ -3,6 +3,7 @@ import { readFile, stat } from "node:fs/promises";
 import http from "node:http";
 import { ApiError, createPlaybackManager } from "./playback.js";
 import { createRateLimiter, createTokenService } from "./tokens.js";
+import { createInviteStore } from "./invites.js";
 import { createTorrentEngine } from "./torrentEngine.js";
 import { isToolAvailable, rewritePlaylist, supportsInputPacing } from "./media.js";
 import { UpstreamError, safeGetText } from "./netGuard.js";
@@ -47,6 +48,7 @@ export async function createApp(config, { logger = console, createEngine = creat
   const tokens = createTokenService({
     secret: config.tokenSecret,
     accessKeys: config.accessKeys,
+    invites: createInviteStore(config.invitesFile),
     sessionTtlMs: config.sessionTtlMs,
     mediaTokenTtlMs: config.mediaTokenTtlMs
   });
@@ -180,11 +182,13 @@ export async function createApp(config, { logger = console, createEngine = creat
         throw new ApiError(429, "RATE_LIMITED", "Too many wrong keys. Wait a minute and try again.");
       }
       const body = await readJson(request);
-      if (typeof body.accessKey !== "string" || !tokens.isValidAccessKey(body.accessKey)) {
+      const who = typeof body.accessKey === "string" ? tokens.identify(body.accessKey) : null;
+      if (!who) {
         limiter.allow(authBucket, LIMITS.auth.limit, LIMITS.auth.windowMs);
-        throw new ApiError(401, "INVALID_ACCESS_KEY", "That access key isn't valid.");
+        throw new ApiError(401, "INVALID_ACCESS_KEY", "That code isn't valid.");
       }
-      json(response, 200, tokens.issueSession());
+      logger.info?.(`Signed in: ${who.name}`);
+      json(response, 200, { ...tokens.issueSession(who), name: who.name });
       return;
     }
 

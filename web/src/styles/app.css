@@ -256,6 +256,28 @@ input:focus-visible, select:focus-visible { outline: 2px solid var(--focus-color
 }
 .is-syncing .sync-overlay { display: flex; }
 
+.invite-backdrop {
+  min-height: 100dvh;
+  display: grid;
+  place-items: center;
+  padding: calc(var(--safe-top) + 24px) var(--gutter) calc(var(--safe-bottom) + 24px);
+  background: radial-gradient(circle at 50% 20%, rgb(255 255 255 / 0.06), transparent 60%), var(--bg-color);
+}
+.invite-card {
+  width: min(100%, 400px);
+  padding: 28px 22px;
+  border-radius: 20px;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-color);
+  box-shadow: 0 24px 60px rgb(0 0 0 / 0.5);
+  text-align: center;
+  align-items: stretch;
+  animation: slide-up 0.24s var(--ease);
+}
+.invite-card .login-logo { margin: 0 auto 4px; }
+.invite-card h1 { font-size: 24px; }
+.invite-card input { text-align: center; letter-spacing: 0.04em; }
+
 /* Login and profiles */
 .login, .profiles {
   min-height: 100dvh;

@@ -1,5 +1,6 @@
 import os from "node:os";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 
 function integer(env, name, fallback) {
   const value = Number(env[name]);
@@ -70,6 +71,7 @@ export function loadConfig(env = process.env) {
     proxyTimeoutMs: integer(env, "PROXY_TIMEOUT_SECONDS", 15) * 1000,
     // Addons that hand out debrid links can take a long time on the first request.
     sourceTimeoutMs: integer(env, "SOURCE_TIMEOUT_SECONDS", 60) * 1000,
-    proxyMaxBytes: integer(env, "PROXY_MAX_MB", 8) * 1024 * 1024
+    proxyMaxBytes: integer(env, "PROXY_MAX_MB", 8) * 1024 * 1024,
+    invitesFile: env.INVITES_FILE || fileURLToPath(new URL("../invites.json", import.meta.url))
   };
 }

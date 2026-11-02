@@ -11,6 +11,7 @@ import { after, before, describe, test } from "node:test";
 import WebTorrent from "webtorrent";
 import { createApp } from "../src/app.js";
 import { loadConfig } from "../src/config.js";
+import { generateCode, hashCode, writeInvites } from "../src/invites.js";
 
 const ACCESS_KEY = "test-access-key-".padEnd(32, "x");
 const ORIGIN = "https://nuvio.test";
@@ -47,6 +48,7 @@ async function startApp(overrides = {}) {
     TOKEN_SECRET: "t".repeat(48),
     ALLOWED_ORIGINS: ORIGIN,
     PORT: "0",
+    INVITES_FILE: path.join(workDir, "no-invites.json"),
     CACHE_DIR: path.join(workDir, `cache-${Math.random().toString(36).slice(2)}`),
     METADATA_TIMEOUT_SECONDS: "30",
     ALLOW_PRIVATE_PEERS: "true",
@@ -95,8 +97,9 @@ async function waitReady(base, token, id, timeoutMs = 60000) {
 
 describe("authentication and access control", () => {
   let ctx;
+  const invitesFile = path.join(workDir, "invites.json");
   before(async () => {
-    ctx = await startApp({ ENABLE_TORRENTS: "false" });
+    ctx = await startApp({ ENABLE_TORRENTS: "false", INVITES_FILE: invitesFile });
   });
   after(() => ctx.app.close());
 
@@ -130,6 +133,18 @@ describe("authentication and access control", () => {
     const { status, data } = await api(ctx.base, "/v1/capabilities", { token });
     assert.equal(status, 200);
     assert.equal(data.torrents, false);
+  });
+
+  test("a friend's invite code signs in, and revoking it ends the session at once", async () => {
+    const code = generateCode();
+    writeInvites(invitesFile, [{ name: "Friend", hash: hashCode(code), createdAt: "2026-11-02" }]);
+    const login = await api(ctx.base, "/v1/auth/session", { method: "POST", body: { accessKey: code } });
+    assert.equal(login.status, 200);
+    assert.equal(login.data.name, "Friend");
+    assert.equal((await api(ctx.base, "/v1/capabilities", { token: login.data.token })).status, 200);
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    writeInvites(invitesFile, []);
+    assert.equal((await api(ctx.base, "/v1/capabilities", { token: login.data.token })).status, 401);
   });
 
   test("logging in repeatedly with the right key isn't rate limited", async () => {

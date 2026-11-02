@@ -10,7 +10,19 @@ function safeEqual(left, right) {
   return timingSafeEqual(a, b);
 }
 
-export function createTokenService({ secret, accessKeys, sessionTtlMs, mediaTokenTtlMs, now = Date.now }) {
+// The owner's keys come from ACCESS_KEYS. Friends' invite codes come from the invite store, which only
+// holds hashes. Each session records which key opened it, so removing a key ends its sessions.
+export function createTokenService({ secret, accessKeys, invites = { list: () => [] }, sessionTtlMs, mediaTokenTtlMs, now = Date.now }) {
+  const ownerKeys = accessKeys.map((key) => ({ id: `owner-${createHash("sha256").update(key).digest("hex").slice(0, 12)}`, name: "Owner", key }));
+
+  function inviteId(invite) {
+    return `invite-${invite.hash.slice(0, 12)}`;
+  }
+
+  function knownIds() {
+    return new Set([...ownerKeys.map((entry) => entry.id), ...invites.list().map(inviteId)]);
+  }
+
   function issue(claims, ttlMs) {
     const exp = now() + ttlMs;
     const body = Buffer.from(JSON.stringify({ ...claims, exp, n: randomBytes(6).toString("base64url") })).toString("base64url");
@@ -32,12 +44,24 @@ export function createTokenService({ secret, accessKeys, sessionTtlMs, mediaToke
   }
 
   return {
-    isValidAccessKey(candidate) {
-      // Every key is compared so that timing doesn't reveal which one matched.
-      return accessKeys.map((key) => safeEqual(key, candidate)).some(Boolean);
+    // Returns who the key belongs to, or null. Every candidate is compared so that timing doesn't
+    // reveal which one matched.
+    identify(candidate) {
+      const text = String(candidate || "");
+      const candidateHash = createHash("sha256").update(text.trim().toLowerCase()).digest("hex");
+      let match = null;
+      for (const entry of ownerKeys) if (safeEqual(entry.key, text) && !match) match = { id: entry.id, name: entry.name };
+      for (const invite of invites.list()) if (safeEqual(invite.hash, candidateHash) && !match) match = { id: inviteId(invite), name: invite.name };
+      return match;
     },
-    issueSession: () => issue({ typ: "session" }, sessionTtlMs),
-    verifySession: (token) => verify(token, "session"),
+    isValidAccessKey(candidate) {
+      return Boolean(this.identify(candidate));
+    },
+    issueSession: (who = { id: ownerKeys[0]?.id, name: "Owner" }) => issue({ typ: "session", kid: who.id, who: who.name }, sessionTtlMs),
+    verifySession(token) {
+      const claims = verify(token, "session");
+      return claims && knownIds().has(claims.kid) ? claims : null;
+    },
     // Media tokens work in URLs because <video> can't send headers, so each one is tied to a
     // single playback session and expires. A leaked URL exposes that one stream only.
     issueMedia: (playbackId) => issue({ typ: "media", pid: playbackId }, mediaTokenTtlMs).token,

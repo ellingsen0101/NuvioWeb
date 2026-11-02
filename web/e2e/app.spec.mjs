@@ -449,6 +449,36 @@ test.describe("playback through the backend", () => {
   });
 });
 
+test.describe("invite-only mode", () => {
+  test.beforeEach(async ({ page }) => {
+    await page.route("**/nuvio.env.js", async (route) => {
+      const original = await (await route.fetch()).text();
+      await route.fulfill({ contentType: "text/javascript", body: `${original}\nglobalThis.__NUVIO_ENV__.NUVIO_REQUIRE_INVITE = "true";` });
+    });
+  });
+
+  test("a stranger can't get past the invite screen, and a friend's code leads to sign-in", async ({ page }) => {
+    await page.goto("/#/home");
+    await expect(page.getByRole("heading", { name: "Invite only" })).toBeVisible();
+    await expect(page.locator(".nav-bottom:visible, .nav-rail:visible")).toHaveCount(0);
+    await page.goto("/#/settings/streaming");
+    await expect(page.getByRole("heading", { name: "Invite only" })).toBeVisible();
+
+    await page.getByLabel("Invite code").fill("not-a-real-code");
+    await page.getByRole("button", { name: "Continue" }).click();
+    await expect(page.locator(".form-error")).toContainText("isn't valid");
+
+    await page.getByLabel("Invite code").fill(BACKEND_KEY);
+    await page.getByRole("button", { name: "Continue" }).click();
+    await expect(page.getByRole("heading", { name: "Sign in to Nuvio" })).toBeVisible({ timeout: 15000 });
+    const stored = await page.evaluate(() => JSON.stringify({ ...localStorage }));
+    expect(stored).not.toContain(BACKEND_KEY);
+
+    await page.reload();
+    await expect(page.getByRole("heading", { name: "Sign in to Nuvio" })).toBeVisible({ timeout: 15000 });
+  });
+});
+
 test.describe("PWA", () => {
   test("the manifest, icons and service worker meet install requirements", async ({ page, request }) => {
     await page.goto("/");

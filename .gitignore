@@ -27,3 +27,4 @@ server/.env
 !.env.example
 test-results/
 playwright-report/
+server/invites.json

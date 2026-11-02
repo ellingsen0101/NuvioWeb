@@ -108,6 +108,7 @@ export const Backend = {
   clearSession() {
     const { baseUrl } = readConfig();
     LocalStore.set(CONFIG_KEY, { baseUrl, token: "", expiresAt: 0 });
+    window.dispatchEvent(new Event("nuvio:backend-signed-out"));
   },
 
   disconnect() {

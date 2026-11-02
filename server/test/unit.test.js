@@ -4,6 +4,7 @@ import { loadConfig } from "../src/config.js";
 import { buildHlsArgs, decidePlayback, pickDefaultAudio, rewritePlaylist, selectFileIndex, summarizeProbe } from "../src/media.js";
 import { isBlockedAddress, parsePublicUrl, sanitizeUpstreamHeaders } from "../src/netGuard.js";
 import { createRateLimiter, createTokenService } from "../src/tokens.js";
+import { generateCode, hashCode } from "../src/invites.js";
 import { trackersFromSources } from "../src/torrentEngine.js";
 
 const SECRET = "x".repeat(40);
@@ -54,6 +55,32 @@ test("access key comparison accepts only configured keys", () => {
   assert.equal(service.isValidAccessKey("k".repeat(30)), true);
   assert.equal(service.isValidAccessKey("k".repeat(29)), false);
   assert.equal(service.isValidAccessKey(""), false);
+});
+
+test("invite codes work, and removing one ends its sessions immediately", () => {
+  let invites = [];
+  const store = { list: () => invites };
+  const service = tokenService({ invites: store, sessionTtlMs: 60000 });
+  const code = generateCode();
+  assert.match(code, /^[a-z2-9]{6}(-[a-z2-9]{6}){3}$/);
+  assert.equal(service.identify(code), null);
+
+  invites = [{ name: "Ola", hash: hashCode(code) }];
+  const who = service.identify(` ${code.toUpperCase()} `);
+  assert.equal(who?.name, "Ola", "codes are forgiving about case and spaces");
+  const { token } = service.issueSession(who);
+  assert.equal(service.verifySession(token)?.who, "Ola");
+
+  invites = [];
+  assert.equal(service.verifySession(token), null, "revoked");
+  assert.equal(service.identify(code), null);
+});
+
+test("the owner key still works next to invites, and owner sessions survive invite changes", () => {
+  const service = tokenService({ invites: { list: () => [] } });
+  const who = service.identify("k".repeat(30));
+  assert.equal(who?.name, "Owner");
+  assert.ok(service.verifySession(service.issueSession(who).token));
 });
 
 test("rate limiter blocks past the limit and resets", () => {
