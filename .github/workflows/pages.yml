@@ -2,8 +2,9 @@ name: Deploy Nuvio Web to GitHub Pages
 
 # The app is public on purpose: every value in its config is a public client value. Repository
 # variables hold them so that each deployment can point at its own servers.
-# Run by hand (Actions tab, or: gh workflow run pages.yml) once Pages is turned on for the repository.
 on:
+  push:
+    branches: [develop]
   workflow_dispatch:
 
 permissions:
