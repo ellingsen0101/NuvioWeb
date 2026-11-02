@@ -10,11 +10,9 @@ services:
       PUBLIC_BASE_URL: "https://${BACKEND_DOMAIN:?Set BACKEND_DOMAIN in .env}"
     volumes:
       - cache:/data/cache
-    ports:
-      # BitTorrent peers. Set TORRENT_PORT in .env to the same value. Streaming works without
-      # inbound peers, but opening this helps on swarms with few seeders.
-      - "6881:6881/tcp"
-      - "6881:6881/udp"
+      - config:/data/config
+    # No ports are published: only Caddy talks to the backend. If you turn torrents on, also publish
+    # TORRENT_PORT here (tcp and udp) and open it in your firewall, which helps poorly seeded swarms.
     read_only: true
     tmpfs:
       - /tmp
@@ -22,7 +20,7 @@ services:
       - ALL
     security_opt:
       - no-new-privileges:true
-    mem_limit: 2g
+    mem_limit: 4g
     pids_limit: 512
 
   caddy:
@@ -41,4 +39,5 @@ services:
 
 volumes:
   cache:
+  config:
   caddy-data:

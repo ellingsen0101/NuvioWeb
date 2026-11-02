@@ -9,11 +9,13 @@ WORKDIR /app
 COPY package.json package-lock.json ./
 RUN npm ci --omit=dev
 COPY src ./src
+COPY scripts ./scripts
 
-RUN mkdir -p /data/cache && chown -R node:node /data /app
+# /data/config holds invites.json, so codes survive rebuilds. Only hashes of codes are stored there.
+RUN mkdir -p /data/cache /data/config && chown -R node:node /data /app
 USER node
 
-ENV NODE_ENV=production HOST=0.0.0.0 PORT=8787 CACHE_DIR=/data/cache
+ENV NODE_ENV=production HOST=0.0.0.0 PORT=8787 CACHE_DIR=/data/cache INVITES_FILE=/data/config/invites.json
 EXPOSE 8787
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s \
   CMD node -e "fetch('http://127.0.0.1:8787/healthz').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
