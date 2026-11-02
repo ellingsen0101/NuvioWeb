@@ -68,6 +68,7 @@ One movie through AIOStreams returned 279 sources: 40 play directly, and the res
 | Third iPhone test, 1080p, on home Wi-Fi | **Direct: 12.1 s to start. Backend: 14.8 s, picture and sound working, subtitles in time.** Subtitles on Direct were late after seeking |
 | Subtitle track choice | Now prefers an exact file hash, then the closest release name, and rejects tracks whose length doesn't fit. Tested with a test addon. **Not confirmed as the cause of, or fix for, the Direct lag on the iPhone** |
 | Fourth iPhone test, 1080p | Backend: 14.4 s and 22.8 s, on two sources. **Direct subtitles still out of time, even before seeking.** Playback details said the app had selected no subtitle, so they may come from the file itself. Not investigated yet |
+| Fifth iPhone test, 1080p Direct | **Subtitles in time.** Which change did it (built-in track, better ranking, or download timeout) wasn't checked |
 | Subtitle timing after fixes | Offset error fixed and tested with generated video. **Not confirmed on the iPhone.** A subtitle made for a different release of a film can still drift |
 
 High-bitrate sources need real bandwidth from backend to phone: one 4-second segment of that source was about 18 MB, or roughly 36 Mbit/s.
