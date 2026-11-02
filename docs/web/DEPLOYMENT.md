@@ -139,6 +139,25 @@ On the iPhone, with Tailscale connected, open `https://MACHINE.TAILNET.ts.net` i
 
 To stop publishing, run `tailscale serve reset`.
 
+### Starting it automatically on Windows
+
+`scripts/selfhost.mjs` runs the backend and the app together and restarts either if it stops. Logs go
+to `%LOCALAPPDATA%\NuvioWeb\logs`. To start it, hidden, whenever you sign in to Windows (no admin
+rights needed):
+
+```bash
+powershell -ExecutionPolicy Bypass -File scripts/windows/install-autostart.ps1
+```
+
+To remove it and stop Nuvio Web:
+
+```bash
+powershell -ExecutionPolicy Bypass -File scripts/windows/install-autostart.ps1 -Remove
+```
+
+`tailscale serve --bg` already survives restarts. The PC still has to be on and awake, so set Windows'
+sleep setting to Never while plugged in if you want it reachable all the time.
+
 ## 3. GPL-3.0
 
 Nuvio Web is a modified version of a GPL-3.0 program. If you make the deployed app available to anyone
