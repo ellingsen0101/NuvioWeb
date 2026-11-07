@@ -8,7 +8,8 @@ self.addEventListener("install", (event) => {
   event.waitUntil(
     caches
       .open(CACHE)
-      .then((cache) => cache.addAll(PRECACHE))
+      // "reload" skips the browser's HTTP cache, which could otherwise hand back the previous build.
+      .then((cache) => cache.addAll(PRECACHE.map((file) => new Request(file, { cache: "reload" }))))
       .then(() => self.skipWaiting())
   );
 });

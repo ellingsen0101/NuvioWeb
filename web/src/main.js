@@ -209,10 +209,31 @@ function onAuthState(state) {
 
 function registerServiceWorker() {
   if (!("serviceWorker" in navigator) || typeof __NUVIO_WEB_DEV__ === "undefined" || __NUVIO_WEB_DEV__) return;
-  const register = () => {
-    navigator.serviceWorker.register("./sw.js").catch((error) => {
+  // The shell is served from the cache, so the first launch after a release still runs the old code.
+  // When the new worker takes over, reload once to switch to it, but never in the middle of a film.
+  let reloading = false;
+  const reloadWhenIdle = () => {
+    if (reloading) return;
+    if (parseHash().name === "player") {
+      window.addEventListener("hashchange", reloadWhenIdle, { once: true });
+      return;
+    }
+    reloading = true;
+    location.reload();
+  };
+  const register = async () => {
+    try {
+      // Only a worker replacing an earlier one is an update. The first install needs no reload.
+      const existing = await navigator.serviceWorker.getRegistration();
+      if (existing?.active) navigator.serviceWorker.addEventListener("controllerchange", reloadWhenIdle);
+      const registration = await navigator.serviceWorker.register("./sw.js");
+      // A Home Screen app can stay open for days, so it checks for a new version when it comes back.
+      document.addEventListener("visibilitychange", () => {
+        if (document.visibilityState === "visible") registration.update().catch(() => null);
+      });
+    } catch (error) {
       console.warn("Service worker registration failed", error);
-    });
+    }
   };
   // Startup is async, so the load event may already have fired by the time this runs.
   if (document.readyState === "complete") register();
