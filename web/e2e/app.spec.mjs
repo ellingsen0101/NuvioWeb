@@ -512,11 +512,17 @@ test.describe("invite-only mode", () => {
     await owner.goto("/#/settings/people");
     await expect(owner.locator(".addon-row", { hasText: "New Friend" }).first()).toBeVisible({ timeout: 15000 });
     await owner.locator(".addon-row", { hasText: "New Friend" }).getByRole("button", { name: "Approve" }).click();
+    // The Nuvio step stays on the owner's list as a real link, so a blocked pop-up can't lose it.
+    const nuvioStep = owner.locator(".addon-row", { hasText: "One more step" }).getByRole("link", { name: "Approve on Nuvio" });
+    await expect(nuvioStep).toBeVisible({ timeout: 15000 });
+    await expect(nuvioStep).toHaveAttribute("href", /^https?:\/\//);
+    await expect(nuvioStep).toHaveAttribute("target", "_blank");
     await fixture(request, "approve");
 
     await expect(page.getByRole("heading", { name: "Who's watching?" })).toBeVisible({ timeout: 20000 });
     const stored = await page.evaluate(() => localStorage.getItem("webAccessRequest"));
     expect(stored).toBeNull();
+    await expect(owner.locator(".addon-row", { hasText: "One more step" })).toHaveCount(0, { timeout: 20000 });
 
     // The owner can remove them again, which sends them back to the first screen.
     await expect(owner.locator(".addon-row", { hasText: "New Friend" }).getByRole("button", { name: "Remove" })).toBeVisible({ timeout: 20000 });

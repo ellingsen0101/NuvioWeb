@@ -19,7 +19,7 @@ export async function renderPeople(container) {
     h(
       "p",
       { class: "muted" },
-      "Approving lets them in. Nuvio's own page then opens with their code filled in. Tap Approve there too, so their device can use your Nuvio account."
+      "Approving someone takes two taps: Approve here, then Approve on Nuvio, which opens Nuvio's page with their code filled in. Tap Approve there too, so their device can use your Nuvio account."
     ),
     requestsBox,
     h("h3", { class: "setting-subhead" }, "People with access"),
@@ -41,30 +41,36 @@ export async function renderPeople(container) {
     clear(requestsBox).append(
       ...(requests.length
         ? requests.map((request) =>
-            h(
-              "div",
-              { class: "addon-row" },
-              h("div", { class: "addon-text" }, h("strong", {}, request.name), h("span", {}, `Asked ${ago(request.createdAt)}`)),
-              h(
-                "div",
-                { class: "addon-actions" },
-                button("Decline", async () => {
-                  await Backend.answerRequest(request.id, false).catch((error) => toast(error.message, { error: true }));
-                  draw();
-                }, { kind: "ghost" }),
-                button("Approve", async () => {
-                  // Opened inside the tap, because browsers block pop-ups opened after a wait.
-                  const nuvioPage = request.signInLink ? window.open(request.signInLink, "_blank", "noopener") : null;
-                  try {
-                    await Backend.answerRequest(request.id, true);
-                    toast(nuvioPage || !request.signInLink ? `${request.name} is approved. Approve the code on Nuvio's page too.` : `${request.name} is approved.`);
-                  } catch (error) {
-                    toast(error.message, { error: true });
-                  }
-                  draw();
-                }, { kind: "primary" })
-              )
-            )
+            request.status === "approved"
+              ? h(
+                  "div",
+                  { class: "addon-row" },
+                  h("div", { class: "addon-text" }, h("strong", {}, request.name), h("span", {}, "Approved. One more step: approve them on Nuvio.")),
+                  h(
+                    "div",
+                    { class: "addon-actions" },
+                    // A real link, because phones block pages a script opens. It stays here until their
+                    // device is signed in, and always carries their latest code.
+                    h("a", { class: "btn btn-primary", href: request.signInLink, target: "_blank", rel: "noopener" }, "Approve on Nuvio")
+                  )
+                )
+              : h(
+                  "div",
+                  { class: "addon-row" },
+                  h("div", { class: "addon-text" }, h("strong", {}, request.name), h("span", {}, `Asked ${ago(request.createdAt)}`)),
+                  h(
+                    "div",
+                    { class: "addon-actions" },
+                    button("Decline", async () => {
+                      await Backend.answerRequest(request.id, false).catch((error) => toast(error.message, { error: true }));
+                      draw();
+                    }, { kind: "ghost" }),
+                    button("Approve", async () => {
+                      await Backend.answerRequest(request.id, true).catch((error) => toast(error.message, { error: true }));
+                      draw();
+                    }, { kind: "primary" })
+                  )
+                )
           )
         : [emptyState({ iconName: "how_to_reg", title: "No one is waiting", detail: "When someone taps Request access, they appear here." })])
     );

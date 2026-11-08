@@ -114,19 +114,26 @@ export function createAccessStore({ requestsFile, invitesFile, allowedLinkHosts 
       return result;
     },
 
-    // A Nuvio code expires after a few minutes, so a waiting device sends a fresh one.
-    updateSignIn(id, pollToken, { signInCode, signInLink }) {
+    // A Nuvio code expires after a few minutes, so a waiting device sends a fresh one. Once the
+    // device is signed in to Nuvio it says so, and the request leaves the owner's list.
+    updateSignIn(id, pollToken, { signInCode, signInLink, signedIn }) {
       const requests = load();
       const request = find(requests, id, pollToken);
-      request.signInCode = String(signInCode || "").replace(/[^A-Za-z0-9-]/g, "").slice(0, 16) || null;
-      request.signInLink = cleanSignInLink(signInLink, allowedLinkHosts);
+      if (signedIn === true) {
+        request.signedIn = true;
+      } else {
+        request.signInCode = String(signInCode || "").replace(/[^A-Za-z0-9-]/g, "").slice(0, 16) || null;
+        request.signInLink = cleanSignInLink(signInLink, allowedLinkHosts);
+      }
       save(requests);
     },
 
+    // Everything waiting on the owner: requests to answer, and approved ones whose device still
+    // needs the Nuvio step.
     listPending() {
       return load()
-        .filter((request) => request.status === "pending")
-        .map(({ id, name, signInCode, signInLink, createdAt }) => ({ id, name, signInCode, signInLink, createdAt }));
+        .filter((request) => request.status === "pending" || (request.status === "approved" && request.signInLink && !request.signedIn))
+        .map(({ id, name, status, signInCode, signInLink, createdAt }) => ({ id, name, status, signInCode, signInLink, createdAt }));
     },
 
     approve(id) {

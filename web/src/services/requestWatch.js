@@ -19,7 +19,8 @@ async function check() {
   if (document.visibilityState !== "visible" || !Backend.isConnected()) return;
   const { requests } = await Backend.pendingRequests();
   refreshRequestBadge(requests.length);
-  const fresh = requests.filter((request) => !announced.has(request.id));
+  // The dot also covers approvals still waiting for the Nuvio step; the notice is only for new requests.
+  const fresh = requests.filter((request) => request.status !== "approved" && !announced.has(request.id));
   fresh.forEach((request) => announced.add(request.id));
   if (fresh.length) {
     toast(fresh.length === 1 ? `${fresh[0].name} is asking for access. See Settings → People.` : `${fresh.length} people are asking for access. See Settings → People.`);

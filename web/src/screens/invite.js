@@ -154,19 +154,15 @@ export function mountInvite(node, _route, { onAccepted } = {}) {
         await Backend.connect(Backend.getBaseUrl(), result.code, { remember: true });
         pending.backendDone = true;
         LocalStore.set(PENDING_KEY, pending);
-        status.textContent = "Approved. Finishing sign-in…";
       }
     }
+    if (pending.backendDone && !pending.nuvioDone) status.textContent = "Approved. Waiting for the last step…";
     if (pending.nuvio && !pending.nuvioDone) {
       if (pending.nuvio.expiresAt && Date.now() > pending.nuvio.expiresAt) {
         // Nuvio's codes only last a few minutes, so a long wait sends the owner a fresh link.
         pending.nuvio = await startNuvioSignIn();
         LocalStore.set(PENDING_KEY, pending);
-        if (!pending.backendDone) {
-          await Backend.updateRequest(pending.id, pending.token, { signInCode: pending.nuvio.displayCode, signInLink: pending.nuvio.loginUrl });
-        } else {
-          status.textContent = "Almost there. Ask the person who approved you to approve the Nuvio code again.";
-        }
+        await Backend.updateRequest(pending.id, pending.token, { signInCode: pending.nuvio.displayCode, signInLink: pending.nuvio.loginUrl });
       }
       const poll = await QrLoginService.poll(pending.nuvio.code, pending.nuvio.deviceNonce);
       if (String(poll?.status || "").toLowerCase() === "approved") {
@@ -178,6 +174,8 @@ export function mountInvite(node, _route, { onAccepted } = {}) {
       }
     }
     if (pending.backendDone && pending.nuvioDone) {
+      // Takes the request off the owner's list. If this fails, it drops off by itself within a day.
+      await Backend.updateRequest(pending.id, pending.token, { signedIn: true }).catch(() => null);
       LocalStore.remove(PENDING_KEY);
       onAccepted?.(pending.name);
       return "stop";

@@ -170,6 +170,17 @@ describe("authentication and access control", () => {
     assert.match(first.code, /^[a-z2-9-]{27}$/);
     assert.equal((await check()).data.code, undefined, "the code is handed over once");
 
+    // Until their device is signed in to Nuvio, the owner keeps the Nuvio step, with the latest link.
+    const update = (body, token = asked.data.pollToken) =>
+      api(ctx.base, `/v1/access/requests/${asked.data.id}`, { method: "PUT", body, headers: { "X-Request-Token": token } });
+    const open = async () => (await api(ctx.base, "/v1/admin/requests", { token: owner })).data.requests;
+    assert.deepEqual((await open()).map(({ status, signInLink }) => ({ status, signInLink })), [{ status: "approved", signInLink: "https://nuvio.tv/link?code=AB12CD" }]);
+    assert.equal((await update({ signInCode: "EF34GH", signInLink: "https://nuvio.tv/link?code=EF34GH" })).status, 200);
+    assert.equal((await open())[0].signInLink, "https://nuvio.tv/link?code=EF34GH", "a fresh code reaches the owner after approval");
+    assert.equal((await update({ signedIn: true }, "guess")).status, 404, "only their device can close it");
+    assert.equal((await update({ signedIn: true })).status, 200);
+    assert.deepEqual(await open(), [], "gone once their device is signed in");
+
     const friend = (await api(ctx.base, "/v1/auth/session", { method: "POST", body: { accessKey: first.code } })).data.token;
     assert.deepEqual((await api(ctx.base, "/v1/me", { token: friend })).data, { name: "Vilde b", admin: false });
     assert.equal((await api(ctx.base, "/v1/admin/requests", { token: friend })).status, 403, "friends can't approve");

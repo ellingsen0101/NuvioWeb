@@ -26,8 +26,9 @@ If you were given an invite code instead, tap **I have an invite code** on the f
 When someone asks, a red dot appears on **Settings**, and the app tells you their name.
 
 1. Open **Settings → People** and tap **Approve** next to their name.
-2. Nuvio's own page opens with their code filled in. Tap **Approve** there as well. This lets their device
-   use your Nuvio account.
+2. Their row changes to **Approve on Nuvio**. Tap it: Nuvio's own page opens with their code filled in.
+   Tap **Approve** there as well. This lets their device use your Nuvio account. The row stays until their
+   device has signed in, so you can come back to it, and it always has their latest code.
 
 **Remove** in the same list takes their access away immediately. To also sign their device out of your
 Nuvio account, remove it in Nuvio's account settings.
